@@ -1,49 +1,66 @@
+require("dotenv").config({ path: "../.env" });
+
 const express = require("express");
 const cors = require("cors");
+const { Pool } = require("pg");
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
-let orders = [
-  {
-    id: 1,
-    from: "Берлин",
-    to: "Гамбург",
-    cargo: "Автозапчасти",
-    weight: 12,
-    price: 850,
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: {
+    rejectUnauthorized: false,
   },
-  {
-    id: 2,
-    from: "Франкфурт",
-    to: "Мюнхен",
-    cargo: "Продукты",
-    weight: 20,
-    price: 1200,
-  },
-];
-
-app.get("/orders", (req, res) => {
-  res.json(orders);
 });
 
-app.post("/orders", (req, res) => {
-  const newOrder = {
-    id: Date.now(),
-    ...req.body,
-  };
+async function initDb() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS orders (
+      id SERIAL PRIMARY KEY,
+      from_city TEXT NOT NULL,
+      to_city TEXT NOT NULL,
+      cargo TEXT NOT NULL,
+      weight INTEGER NOT NULL,
+      price INTEGER NOT NULL,
+      created_at TIMESTAMP DEFAULT NOW()
+    )
+  `);
 
-  orders.push(newOrder);
+  console.log("Postgres connected");
+}
 
-  res.json(newOrder);
+initDb();
+
+app.get("/orders", async (req, res) => {
+  const result = await pool.query(
+    "SELECT * FROM orders ORDER BY id DESC"
+  );
+  res.json(result.rows);
 });
 
-app.delete("/orders/:id", (req, res) => {
-  const id = Number(req.params.id);
+app.post("/orders", async (req, res) => {
+  const { from, to, cargo, weight, price } = req.body;
 
-  orders = orders.filter((o) => o.id !== id);
+  const result = await pool.query(
+    `
+    INSERT INTO orders
+    (from_city, to_city, cargo, weight, price)
+    VALUES ($1,$2,$3,$4,$5)
+    RETURNING *
+    `,
+    [from, to, cargo, weight, price]
+  );
+
+  res.json(result.rows[0]);
+});
+
+app.delete("/orders/:id", async (req, res) => {
+  await pool.query(
+    "DELETE FROM orders WHERE id=$1",
+    [req.params.id]
+  );
 
   res.json({ success: true });
 });
