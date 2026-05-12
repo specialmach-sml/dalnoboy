@@ -1,5 +1,10 @@
 import logging
+import asyncpg
 
+from telegram import ReplyKeyboardMarkup, Update
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+
+# ================= LOGGING =================
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
@@ -7,8 +12,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-import asyncpg
-
+# ================= DB =================
 DB = None
 
 async def init_db():
@@ -20,10 +24,9 @@ async def init_db():
         host='127.0.0.1'
     )
     print("База подключена")
-from telegram import ReplyKeyboardMarkup, Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 
-TOKEN = "8634997756:AAEQziuv7zogJZYk3ZLk85JPKvvHYmU9UMQ"
+# ================= TELEGRAM =================
+TOKEN = "YOUR_TOKEN_HERE"
 
 MENU = ReplyKeyboardMarkup(
     [
@@ -37,71 +40,86 @@ MENU = ReplyKeyboardMarkup(
 user_state = {}
 user_data = {}
 
+# ================= START =================
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_state[update.effective_user.id] = ""
     await update.message.reply_text("Выбери действие", reply_markup=MENU)
 
+# ================= MAIN HANDLER =================
 async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.effective_user.id
     text = update.message.text
-
     state = user_state.get(uid, "")
 
+    # 🚛 free truck
     if text == "🚛 Свободная машина":
         user_state[uid] = "truck_city"
         await update.message.reply_text("Укажи город:")
         return
 
+    # 📦 load
     if text == "📦 Разместить груз":
         user_state[uid] = "load_from"
         await update.message.reply_text("Откуда груз:")
         return
 
+    # ================= TRUCK FLOW =================
     if state == "truck_city":
         user_data[uid] = {"city": text}
-
         user_state[uid] = "truck_direction"
 
         await update.message.reply_text(
-        f"Город: {text}\n\nТеперь укажи направление:"
-    )
-    return
+            f"Город: {text}\n\nТеперь укажи направление:"
+        )
+        return
 
     if state == "truck_direction":
-        city = user_data[uid]["city"]
+        city = user_data[uid].get("city", "")
         direction = text
+
         print("SAVE START")
 
         await DB.execute(
-        """
-        INSERT INTO trucks(
-            created_by_user_id,
-            comment
+            """
+            INSERT INTO trucks(
+                created_by_user_id,
+                comment
+            )
+            VALUES($1, $2)
+            """,
+            uid,
+            f"{city} -> {direction}"
         )
-        VALUES($1, $2)
-        """,
-        uid,
-        f"{city} -> {direction}"
-    )
 
-    print("SAVE OK")
+        print("SAVE OK")
 
-    user_state[uid] = ""
-    user_data[uid] = {}
+        user_state[uid] = ""
+        user_data[uid] = {}
 
-    await update.message.reply_text(
-        f"✅ Машина добавлена\n\n"
-        f"Город: {city}\n"
-        f"Направление: {direction}",
-        reply_markup=MENU
-    )
-    return
+        await update.message.reply_text(
+            f"✅ Машина добавлена\n\n"
+            f"Город: {city}\n"
+            f"Направление: {direction}",
+            reply_markup=MENU
+        )
+        return
 
     await update.message.reply_text("Выбери действие", reply_markup=MENU)
 
+# ================= ERROR HANDLER =================
+async def error_handler(update, context):
+    logger.error("BOT ERROR", exc_info=context.error)
+    try:
+        if update and update.effective_message:
+            await update.effective_message.reply_text("⚠️ Ошибка, попробуйте позже")
+    except:
+        pass
+
+# ================= POST INIT =================
 async def post_init(app):
     await init_db()
 
+# ================= MAIN =================
 def main():
     app = (
         ApplicationBuilder()
@@ -116,18 +134,6 @@ def main():
     print("Бот запущен")
     app.run_polling()
 
-
-
+# ================= RUN =================
 if __name__ == "__main__":
     main()
-
-async def error_handler(update, context):
-    logger.error("BOT ERROR", exc_info=context.error)
-
-    try:
-        if update and update.effective_message:
-            await update.effective_message.reply_text(
-                "⚠️ Ошибка, попробуйте позже"
-            )
-    except:
-        pass
