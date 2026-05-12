@@ -1,0 +1,107 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  font-family: Arial, sans-serif;
+}
+
+body {
+  background: #0b1020;
+  color: white;
+}
+
+.app {
+  min-height: 100vh;
+  max-width: 430px;
+  margin: auto;
+  background: #08142f;
+  border-left: 1px solid #1c2b52;
+  border-right: 1px solid #1c2b52;
+  display: flex;
+  flex-direction: column;
+}
+
+.content {
+  flex: 1;
+  padding: 24px 16px 90px;
+}
+
+h1 {
+  text-align: center;
+  margin-bottom: 24px;
+  font-size: 48px;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.card {
+  background: #172742;
+  border-radius: 18px;
+  padding: 20px;
+  text-align: center;
+}
+
+.card h2 {
+  margin-bottom: 10px;
+}
+
+.card p {
+  margin: 6px 0;
+  color: #d2d9e7;
+}
+
+.price {
+  margin-top: 12px;
+  color: #00e676;
+  font-size: 28px;
+  font-weight: bold;
+}
+
+.form-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+input {
+  width: 100%;
+  padding: 16px;
+  border-radius: 12px;
+  border: none;
+  background: #172742;
+  color: white;
+  font-size: 18px;
+}
+
+.publish-btn {
+  padding: 16px;
+  border: none;
+  border-radius: 14px;
+  background: #00c853;
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  width: 430px;
+  background: #172742;
+  display: flex;
+  justify-content: space-around;
+  padding: 14px 0;
+  border-top: 1px solid #2a3d64;
+}
+
+.bottom-nav button {
+  background: none;
+  border: none;
+  font-size: 28px;
+  cursor: pointer;
+}
