@@ -19,14 +19,14 @@ async def init_db():
     global DB
     DB = await asyncpg.connect(
         user='dalno',
-        password='123456789',
+8634997756:AAEQziuv7zogJZYk3ZLk85JPKvvHYmU9UMQ        password='123456789',
         database='dalnoboy',
         host='127.0.0.1'
     )
     print("База подключена")
 
 # ================= TELEGRAM =================
-TOKEN = "8634997756:AAEQziuv7zogJZYk3ZLk85JPKvvHYmU9UMQ"
+TOKEN = "YOUR_TOKEN_HERE"
 
 MENU = ReplyKeyboardMarkup(
     [
@@ -60,66 +60,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # 📦 load
     if text == "📦 Разместить груз":
         user_state[uid] = "load_from"
-
-        await update.message.reply_text(
-            "Откуда груз:"
-        )
-        return
-
-
-    if state == "load_from":
-        user_data[uid] = {"from_city": text}
-
-        user_state[uid] = "load_to"
-
-        await update.message.reply_text(
-            "Куда груз:"
-        )
-        return
-
-
-    if state == "load_to":
-        user_data[uid]["to_city"] = text
-
-        user_state[uid] = "load_cargo"
-
-        await update.message.reply_text(
-            "Какой груз:"
-        )
-        return
-
-
-    if state == "load_cargo":
-        from_city = user_data[uid]["from_city"]
-        to_city = user_data[uid]["to_city"]
-        cargo = text
-
-        await DB.execute(
-            """
-            INSERT INTO loads(
-                user_id,
-                from_city,
-                to_city,
-                cargo
-            )
-            VALUES($1, $2, $3, $4)
-            """,
-            uid,
-            from_city,
-            to_city,
-            cargo
-        )
-
-        user_state[uid] = ""
-        user_data[uid] = {}
-
-        await update.message.reply_text(
-            f"✅ Груз добавлен\n\n"
-            f"Откуда: {from_city}\n"
-            f"Куда: {to_city}\n"
-            f"Груз: {cargo}",
-            reply_markup=MENU
-        )
+        await update.message.reply_text("Откуда груз:")
         return
 
     # ================= TRUCK FLOW =================
