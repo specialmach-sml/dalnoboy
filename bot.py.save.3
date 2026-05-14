@@ -1,43 +1,4 @@
-import logging
-import asyncpg
-
-from telegram import (
-    Update,
-    InlineKeyboardButton,
-    InlineKeyboardMarkup
-)
-
-from telegram.ext import (
-    Application,
-    CommandHandler,
-    CallbackQueryHandler,
-    ContextTypes
-)
-
-# ==================================================
-# CONFIG
-# ==================================================
-
-TOKEN = "8634997756:AAEQziuv7zogJZYk3ZLk85JPKvvHYmU9UMQ"
-
-DB_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/dalnoboy"
-
-DB = None
-
-# ==================================================
-# LOGGING
-# ==================================================
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
-logger = logging.getLogger(__name__)
-
-# ==================================================
-# DB
-# ==================================================
+=====================================
 
 async def init_db():
     global DB
