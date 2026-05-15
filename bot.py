@@ -10,6 +10,17 @@ from telegram.ext import (
 )
 
 TOKEN = "8634997756:AAEQziuv7zogJZYk3ZLk85JPKvvHYmU9UMQ"
+import asyncpg
+
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    CallbackQueryHandler,
+    ContextTypes
+)
+
+TOKEN = "8634997756:AAEQziuv7zogJZYk3ZLk85JPKvvHYmU9UMQ"
 DB_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/dalnoboy"
 
 DB = None
@@ -232,7 +243,6 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         SELECT
             d.id,
             d.status,
-            d.created_at,
             c.id AS cargo_id,
             c.from_city,
             c.to_city,
@@ -258,7 +268,56 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📊 Статус: {r['status']}"
         )
 
-        await update.message.reply_text(text)
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🚚 В пути", callback_data=f"deal_in_progress_{r['id']}"),
+                InlineKeyboardButton("✅ Доставлено", callback_data=f"deal_done_{r['id']}")
+            ],
+            [
+                InlineKeyboardButton("❌ Отменить", callback_data=f"deal_cancelled_{r['id']}")
+            ]
+        ])
+
+        await update.message.reply_text(text, reply_markup=kb)
+
+async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    parts = q.data.split("_")
+
+    if len(parts) == 4 and parts[1] == "in" and parts[2] == "progress":
+        status = "in_progress"
+        deal_id = int(parts[3])
+    else:
+        status = parts[1]
+        deal_id = int(parts[2])
+
+    deal = await DB.fetchrow("""
+        SELECT id FROM deals
+        WHERE id=$1
+    """, deal_id)
+
+    if not deal:
+        await q.message.reply_text("❌ Сделка не найдена")
+        return
+
+    await DB.execute("""
+        UPDATE deals
+        SET status=$1, updated_at=now()
+        WHERE id=$2
+    """, status, deal_id)
+
+    labels = {
+        "active": "🟢 Активная",
+        "in_progress": "🚚 В пути",
+        "done": "✅ Доставлено",
+        "cancelled": "❌ Отменено"
+    }
+
+    await q.message.reply_text(
+        f"🤝 Сделка #{deal_id}: статус изменён на {labels.get(status, status)}"
+    )
 
 async def post_init(app: Application):
     await init_db()
@@ -273,6 +332,7 @@ def main():
 
     app.add_handler(CallbackQueryHandler(respond, pattern="^cargo_"))
     app.add_handler(CallbackQueryHandler(response_action, pattern="^(accept|reject)_"))
+    app.add_handler(CallbackQueryHandler(deal_action, pattern="^deal_"))
 
     print("🚛 BOT RUNNING")
     app.run_polling()
