@@ -1454,6 +1454,10 @@ async def report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     deals_total = await DB.fetchval("SELECT COUNT(*) FROM deals")
     disputes_open = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE dispute=true")
     subs_active = await DB.fetchval("SELECT COUNT(*) FROM route_subscriptions WHERE active=true")
+    new_users = await DB.fetchval("SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE")
+    new_cargo = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE created_at::date = CURRENT_DATE")
+    new_deals = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE created_at::date = CURRENT_DATE")
+    subs_active = await DB.fetchval("SELECT COUNT(*) FROM route_subscriptions WHERE active=true")
 
     await update.message.reply_text(
         f"📄 Отчёт Dalnoboy\n\n"
@@ -2936,6 +2940,10 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         trucks_active = await DB.fetchval("SELECT COUNT(*) FROM trucks WHERE status='active'")
         deals_active = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE status IN ('active','in_progress')")
         disputes_open = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE dispute=true")
+    subs_active = await DB.fetchval("SELECT COUNT(*) FROM route_subscriptions WHERE active=true")
+    new_users = await DB.fetchval("SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE")
+    new_cargo = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE created_at::date = CURRENT_DATE")
+    new_deals = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE created_at::date = CURRENT_DATE")
 
         await q.message.reply_text(
             "📊 Dashboard\n\n"
@@ -2979,6 +2987,10 @@ async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
     trucks_active = await DB.fetchval("SELECT COUNT(*) FROM trucks WHERE status='active'")
     deals_active = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE status IN ('active','in_progress')")
     disputes_open = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE dispute=true")
+    subs_active = await DB.fetchval("SELECT COUNT(*) FROM route_subscriptions WHERE active=true")
+    new_users = await DB.fetchval("SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE")
+    new_cargo = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE created_at::date = CURRENT_DATE")
+    new_deals = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE created_at::date = CURRENT_DATE")
 
     await update.message.reply_text(
         "📊 Dashboard\n\n"
@@ -2987,7 +2999,12 @@ async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🟢 Открытых грузов: {cargo_open}\n"
         f"🚚 Активных машин: {trucks_active}\n"
         f"🤝 Активных сделок: {deals_active}\n"
-        f"⚠️ Открытых споров: {disputes_open}"
+        f"⚠️ Открытых споров: {disputes_open}\n"
+        f"🔔 Активных подписок: {subs_active}\n\n"
+        f"📅 Сегодня:\n"
+        f"👥 Новых пользователей: {new_users}\n"
+        f"📦 Новых грузов: {new_cargo}\n"
+        f"🤝 Новых сделок: {new_deals}"
     )
 
 def main():
