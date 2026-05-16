@@ -1,6 +1,5 @@
 import logging
 import shutil
-import subprocess
 from datetime import datetime
 import asyncpg
 
@@ -12,15 +11,13 @@ from telegram.ext import (
     ConversationHandler,
     MessageHandler,
     ContextTypes,
-    filters,
-    ApplicationHandlerStop
+    filters
 )
 
 TOKEN = "8634997756:AAEQziuv7zogJZYk3ZLk85JPKvvHYmU9UMQ"
 DB_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/dalnoboy"
 
 DB = None
-BOT_VERSION = datetime.now().strftime("%Y.%m.%d.%H%M")
 
 CARGO_FROM = 1
 CARGO_TO = 2
@@ -41,7 +38,7 @@ async def init_db():
 
 async def ensure_user(tg_user):
     row = await DB.fetchrow("""
-        SELECT id, banned FROM users
+        SELECT id FROM users
         WHERE telegram_id=$1
     """, tg_user.id)
 
@@ -58,27 +55,6 @@ async def ensure_user(tg_user):
 
 
 
-
-
-
-
-async def ban_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    tg_user = update.effective_user
-    if not tg_user:
-        return
-
-    row = await DB.fetchrow("""
-        SELECT id, banned
-        FROM users
-        WHERE telegram_id=$1
-    """, tg_user.id)
-
-    if row and row["banned"]:
-        if update.message:
-            await update.message.reply_text("⛔ Ваш аккаунт заблокирован")
-        elif update.callback_query:
-            await update.callback_query.answer("⛔ Аккаунт заблокирован", show_alert=True)
-        raise ApplicationHandlerStop
 
 
 async def truck(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -138,10 +114,6 @@ async def truck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
-    user_verified = await DB.fetchval("""
-        SELECT verified FROM users WHERE id=$1
-    """, user_id)
-
     stats = await DB.fetchrow("""
         SELECT
             COUNT(*) AS reviews_count,
@@ -168,7 +140,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, user_id)
 
     text = (
-        f"👤 Профиль перевозчика {'✅ Проверен' if user_verified else '⚠️ Не проверен'}\n\n"
+        f"👤 Профиль перевозчика\n\n"
         f"⭐ Рейтинг: {stats['avg_score'] or 'нет оценок'}\n"
         f"💬 Отзывов: {stats['reviews_count']}\n"
         f"✅ Завершённых сделок: {deals_count}\n"
@@ -222,8 +194,7 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
-            [InlineKeyboardButton("🚩 Жалоба", callback_data=f"report_{r['id']}")]
+            [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
         ])
 
         await update.message.reply_text(text, reply_markup=kb)
@@ -346,41 +317,6 @@ async def cargo_open(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text(f"✅ Груз #{cargo_id} снова опубликован")
 
 
-
-
-
-
-async def cargo_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-
-    cargo_id = int(q.data.split("_")[1])
-
-    user_id = await ensure_user(q.from_user)
-
-    exists = await DB.fetchval("""
-        SELECT id
-        FROM cargo_reports
-        WHERE cargo_id=$1
-          AND user_id=$2
-    """, cargo_id, user_id)
-
-    if exists:
-        await q.message.reply_text("⚠️ Жалоба уже отправлена")
-        return
-
-    await DB.execute("""
-        INSERT INTO cargo_reports (
-            cargo_id,
-            user_id,
-            reason
-        )
-        VALUES ($1,$2,'telegram_report')
-    """, cargo_id, user_id)
-
-    await q.message.reply_text(
-        f"🚩 Жалоба на груз #{cargo_id} отправлена"
-    )
 
 
 async def cargo_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -564,75 +500,6 @@ async def admindeals(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-
-
-async def adminreports(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = await ensure_user(update.effective_user)
-
-    if user_id != 1:
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-
-    rows = await DB.fetch("""
-        SELECT
-            cr.id,
-            cr.cargo_id,
-            cr.user_id,
-            cr.reason,
-            cr.status,
-            cr.created_at,
-            c.from_city,
-            c.to_city
-        FROM cargo_reports cr
-        LEFT JOIN cargo c ON c.id = cr.cargo_id
-        ORDER BY cr.id DESC
-        LIMIT 20
-    """)
-
-    if not rows:
-        await update.message.reply_text("🚩 Жалоб нет")
-        return
-
-    text = "🚩 Последние жалобы\n\n"
-
-    for r in rows:
-        text += (
-            f"#{r['id']} | груз {r['cargo_id']} | user {r['user_id']}\n"
-            f"{r['from_city']} → {r['to_city']}\n"
-            f"Причина: {r['reason']}\n"
-            f"Статус: {r['status']}\n\n"
-        )
-
-    kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✅ Закрыть последнюю жалобу", callback_data=f"report_close_{rows[0]['id']}")]
-    ])
-
-    await update.message.reply_text(text, reply_markup=kb)
-
-
-
-
-async def report_close(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-
-    user_id = await ensure_user(q.from_user)
-
-    if user_id != 1:
-        await q.message.reply_text("⛔ Нет доступа")
-        return
-
-    report_id = int(q.data.split("_")[2])
-
-    await DB.execute("""
-        UPDATE cargo_reports
-        SET status='closed'
-        WHERE id=$1
-    """, report_id)
-
-    await q.message.reply_text(f"✅ Жалоба #{report_id} закрыта")
-
-
 async def adminreviews(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -669,97 +536,6 @@ async def adminreviews(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
-
-
-
-
-async def version(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        f"🚛 Dalnoboy PRO\n"
-        f"Версия: {BOT_VERSION}"
-    )
-
-
-
-
-
-
-
-
-async def status_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        db_ok = await DB.fetchval("SELECT 1")
-        open_cargo = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE status='open'")
-        active_deals = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE status IN ('active','in_progress')")
-
-        await update.message.reply_text(
-            f"🟢 Dalnoboy работает\n\n"
-            f"Версия: {BOT_VERSION}\n"
-            f"База: {'OK' if db_ok == 1 else 'ERROR'}\n"
-            f"Открытых грузов: {open_cargo}\n"
-            f"Активных сделок: {active_deals}"
-        )
-    except Exception as e:
-        await update.message.reply_text(f"🔴 Ошибка статуса: {e}")
-
-
-async def errors(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = await ensure_user(update.effective_user)
-
-    if user_id != 1:
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-
-    result = subprocess.run(
-        ["/usr/bin/journalctl", "-u", "dalnoboy", "-n", "100", "--no-pager"],
-        capture_output=True,
-        text=True
-    )
-
-    lines = [
-        line for line in result.stdout.splitlines()
-        if "ERROR" in line or "Traceback" in line or "Exception" in line
-    ]
-
-    text = "\n".join(lines[-20:]) or "✅ Ошибок не найдено"
-
-    await update.message.reply_text(
-        f"🚨 Ошибки:\n\n{text[-3000:]}"
-    )
-
-
-async def logs(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = await ensure_user(update.effective_user)
-
-    if user_id != 1:
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-
-    result = subprocess.run(
-        ["/usr/bin/journalctl", "-u", "dalnoboy", "-n", "10", "--no-pager"],
-        capture_output=True,
-        text=True
-    )
-
-    text = result.stdout[-1800:] or "Лог пуст"
-
-    await update.message.reply_text(
-        f"📜 Последние логи:\n\n{text}"
-    )
-
-
-async def health(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        db_ok = await DB.fetchval("SELECT 1")
-        await update.message.reply_text(
-            "✅ Health OK\n"
-            f"🤖 Бот: работает\n"
-            f"🗄 PostgreSQL: {'OK' if db_ok == 1 else 'ERROR'}"
-        )
-    except Exception as e:
-        await update.message.reply_text(f"❌ Health ERROR: {e}")
-
-
 async def backupbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -778,133 +554,6 @@ async def backupbot(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"💾 Бэкап создан:\n{filename}"
     )
-
-
-
-
-async def verify(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = await ensure_user(update.effective_user)
-
-    verified = await DB.fetchval("""
-        SELECT verified FROM users WHERE id=$1
-    """, user_id)
-
-    if verified:
-        await update.message.reply_text("✅ Ваш профиль уже проверен")
-        return
-
-    await update.message.reply_text(
-        "📩 Заявка на верификацию отправлена.\n"
-        "Админ проверит профиль и подтвердит статус."
-    )
-
-
-async def adminverify(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    admin_id = await ensure_user(update.effective_user)
-
-    if admin_id != 1:
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Используй: /adminverify USER_ID")
-        return
-
-    try:
-        target_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("USER_ID должен быть числом")
-        return
-
-    await DB.execute("""
-        UPDATE users
-        SET verified=true
-        WHERE id=$1
-    """, target_id)
-
-    await update.message.reply_text(f"✅ User #{target_id} верифицирован")
-
-
-
-
-async def unverify(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    admin_id = await ensure_user(update.effective_user)
-
-    if admin_id != 1:
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Используй: /unverify USER_ID")
-        return
-
-    try:
-        target_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("USER_ID должен быть числом")
-        return
-
-    await DB.execute("""
-        UPDATE users
-        SET verified=false
-        WHERE id=$1
-    """, target_id)
-
-    await update.message.reply_text(f"⚠️ User #{target_id} больше не верифицирован")
-
-
-
-
-async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    admin_id = await ensure_user(update.effective_user)
-
-    if admin_id != 1:
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Используй: /ban USER_ID")
-        return
-
-    try:
-        target_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("USER_ID должен быть числом")
-        return
-
-    await DB.execute("""
-        UPDATE users
-        SET banned=true
-        WHERE id=$1
-    """, target_id)
-
-    await update.message.reply_text(f"⛔ User #{target_id} заблокирован")
-
-
-async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    admin_id = await ensure_user(update.effective_user)
-
-    if admin_id != 1:
-        await update.message.reply_text("⛔ Нет доступа")
-        return
-
-    if not context.args:
-        await update.message.reply_text("Используй: /unban USER_ID")
-        return
-
-    try:
-        target_id = int(context.args[0])
-    except ValueError:
-        await update.message.reply_text("USER_ID должен быть числом")
-        return
-
-    await DB.execute("""
-        UPDATE users
-        SET banned=false
-        WHERE id=$1
-    """, target_id)
-
-    await update.message.reply_text(f"✅ User #{target_id} разблокирован")
 
 
 async def adminhelp(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -953,7 +602,6 @@ async def topcarriers(update: Update, context: ContextTypes.DEFAULT_TYPE):
         SELECT
             u.id,
             u.full_name,
-            u.verified,
             COALESCE(ROUND(AVG(rv.overall_score)::numeric, 2), 0) AS avg_score,
             COUNT(rv.id) AS reviews_count,
             (
@@ -1095,8 +743,7 @@ async def findprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for r in rows:
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
-            [InlineKeyboardButton("🚩 Жалоба", callback_data=f"report_{r['id']}")]
+            [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
         ])
 
         await update.message.reply_text(
@@ -1122,7 +769,6 @@ async def findtruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             t.current_city,
             t.body_type,
             u.full_name,
-            u.verified,
             COALESCE(ROUND(AVG(rv.overall_score)::numeric, 2), 0) AS avg_score,
             COUNT(rv.id) AS reviews_count,
             (
@@ -1141,7 +787,7 @@ async def findtruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             OR t.body_type ILIKE $1
             OR u.full_name ILIKE $1
           )
-        GROUP BY t.id, t.current_city, t.body_type, u.full_name, u.verified, t.driver_id
+        GROUP BY t.id, t.current_city, t.body_type, u.full_name, t.driver_id
         ORDER BY avg_score DESC, done_deals DESC
         LIMIT 20
     """, f"%{query}%")
@@ -1153,7 +799,7 @@ async def findtruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for r in rows:
         await update.message.reply_text(
             f"🚚 Машина #{r['truck_id']}\n"
-            f"👤 Водитель: {r['full_name']} {'✅' if r['verified'] else '⚠️'}\n"
+            f"👤 Водитель: {r['full_name']}\n"
             f"📍 Город: {r['current_city']}\n"
             f"📦 Кузов: {r['body_type']}\n"
             f"⭐ Рейтинг: {r['avg_score'] or 'нет'} ({r['reviews_count']} отзывов)\n"
@@ -1195,8 +841,7 @@ async def find_cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
-            [InlineKeyboardButton("🚩 Жалоба", callback_data=f"report_{r['id']}")]
+            [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
         ])
 
         await update.message.reply_text(text, reply_markup=kb)
@@ -1265,7 +910,6 @@ async def responses_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             c.from_city,
             c.to_city,
             u.full_name,
-            u.verified,
             t.id AS truck_id,
             t.current_city,
             t.body_type
@@ -1286,7 +930,7 @@ async def responses_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = (
             f"🚛 Отклик #{r['id']}\n"
             f"📦 Груз #{r['cargo_id']}: {r['from_city']} → {r['to_city']}\n"
-            f"👤 Водитель: {r['full_name']} {'✅' if r['verified'] else '⚠️'}\n"
+            f"👤 Водитель: {r['full_name']}\n"
             f"🚚 Машина #{r['truck_id']}: {r['current_city']}, {r['body_type']}\n"
             f"📊 Статус: {r['status']}\n"
             f"💬 {r['message']}"
@@ -1548,7 +1192,7 @@ async def rate_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tg_user = q.from_user
 
     author = await DB.fetchrow("""
-        SELECT id, banned FROM users
+        SELECT id FROM users
         WHERE telegram_id=$1
     """, tg_user.id)
 
@@ -1650,19 +1294,6 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data = context.user_data["newcargo"]
 
-    recent_count = await DB.fetchval("""
-        SELECT COUNT(*)
-        FROM cargo
-        WHERE created_by=$1
-          AND created_at > now() - interval '10 minutes'
-    """, user_id)
-
-    if recent_count >= 5:
-        await update.message.reply_text(
-            "⛔ Слишком много грузов. Подождите 10 минут."
-        )
-        return ConversationHandler.END
-
     row = await DB.fetchrow("""
         INSERT INTO cargo (
             created_by,
@@ -1722,8 +1353,6 @@ def main():
         fallbacks=[CommandHandler("cancel", newcargo_cancel)],
     )
 
-    app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-1)
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cargo", cargo))
     app.add_handler(CommandHandler("find", find_cargo))
@@ -1739,19 +1368,8 @@ def main():
     app.add_handler(CommandHandler("admincargo", admincargo))
     app.add_handler(CommandHandler("admindeals", admindeals))
     app.add_handler(CommandHandler("adminreviews", adminreviews))
-    app.add_handler(CommandHandler("adminreports", adminreports))
     app.add_handler(CommandHandler("adminhelp", adminhelp))
-    app.add_handler(CommandHandler("verify", verify))
-    app.add_handler(CommandHandler("adminverify", adminverify))
-    app.add_handler(CommandHandler("unverify", unverify))
-    app.add_handler(CommandHandler("ban", ban_user))
-    app.add_handler(CommandHandler("unban", unban_user))
     app.add_handler(CommandHandler("backupbot", backupbot))
-    app.add_handler(CommandHandler("health", health))
-    app.add_handler(CommandHandler("version", version))
-    app.add_handler(CommandHandler("logs", logs))
-    app.add_handler(CommandHandler("errors", errors))
-    app.add_handler(CommandHandler("status", status_cmd))
     app.add_handler(CommandHandler("responses", responses_list))
     app.add_handler(CommandHandler("deals", deals_list))
     app.add_handler(CommandHandler("profile", profile))
@@ -1761,8 +1379,6 @@ def main():
     app.add_handler(CallbackQueryHandler(cargo_cancel, pattern="^cargo_cancel_"))
     app.add_handler(CallbackQueryHandler(cargo_open, pattern="^cargo_open_"))
     app.add_handler(CallbackQueryHandler(cargo_delete, pattern="^cargo_delete_"))
-    app.add_handler(CallbackQueryHandler(report_close, pattern="^report_close_"))
-    app.add_handler(CallbackQueryHandler(cargo_report, pattern="^report_"))
     app.add_handler(CallbackQueryHandler(cargo_restore, pattern="^cargo_restore_"))
     app.add_handler(CallbackQueryHandler(respond, pattern="^cargo_"))
     app.add_handler(CallbackQueryHandler(response_action, pattern="^(accept|reject)_"))
