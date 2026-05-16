@@ -2938,6 +2938,31 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text("Неизвестный пункт меню")
 
 
+
+async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if user_id != 1:
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
+    users_count = await DB.fetchval("SELECT COUNT(*) FROM users")
+    cargo_open = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE status='open'")
+    cargo_total = await DB.fetchval("SELECT COUNT(*) FROM cargo")
+    trucks_active = await DB.fetchval("SELECT COUNT(*) FROM trucks WHERE status='active'")
+    deals_active = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE status IN ('active','in_progress')")
+    disputes_open = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE dispute=true")
+
+    await update.message.reply_text(
+        "📊 Dashboard\n\n"
+        f"👥 Пользователей: {users_count}\n"
+        f"📦 Грузов всего: {cargo_total}\n"
+        f"🟢 Открытых грузов: {cargo_open}\n"
+        f"🚚 Активных машин: {trucks_active}\n"
+        f"🤝 Активных сделок: {deals_active}\n"
+        f"⚠️ Открытых споров: {disputes_open}"
+    )
+
 def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
@@ -3030,6 +3055,8 @@ def main():
 
     app.add_handler(CommandHandler("menu", menu))
     app.add_handler(CallbackQueryHandler(menu_button, pattern="^menu_"))
+    app.add_handler(CommandHandler("dashboard", dashboard))
+
     app.add_error_handler(error_handler)
 
     print("🚛 BOT RUNNING")
