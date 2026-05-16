@@ -2940,10 +2940,10 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         trucks_active = await DB.fetchval("SELECT COUNT(*) FROM trucks WHERE status='active'")
         deals_active = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE status IN ('active','in_progress')")
         disputes_open = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE dispute=true")
-    subs_active = await DB.fetchval("SELECT COUNT(*) FROM route_subscriptions WHERE active=true")
-    new_users = await DB.fetchval("SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE")
-    new_cargo = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE created_at::date = CURRENT_DATE")
-    new_deals = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE created_at::date = CURRENT_DATE")
+        subs_active = await DB.fetchval("SELECT COUNT(*) FROM route_subscriptions WHERE active=true")
+        new_users = await DB.fetchval("SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE")
+        new_cargo = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE created_at::date = CURRENT_DATE")
+        new_deals = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE created_at::date = CURRENT_DATE")
 
         await q.message.reply_text(
             "📊 Dashboard\n\n"
@@ -3005,6 +3005,17 @@ async def dashboard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"👥 Новых пользователей: {new_users}\n"
         f"📦 Новых грузов: {new_cargo}\n"
         f"🤝 Новых сделок: {new_deals}"
+    )
+
+
+async def docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📄 Документы для перевозки\n\n"
+        "1. Договор-заявка на перевозку\n"
+        "2. CMR / ТТН\n"
+        "3. Акт приёма-передачи груза\n"
+        "4. Правила безопасной сделки\n\n"
+        "Скоро добавим шаблоны прямо в бота."
     )
 
 def main():
@@ -3100,6 +3111,8 @@ def main():
     app.add_handler(CommandHandler("menu", menu))
     app.add_handler(CallbackQueryHandler(menu_button, pattern="^menu_"))
     app.add_handler(CommandHandler("dashboard", dashboard))
+
+    app.add_handler(CommandHandler("docs", docs))
 
     app.add_error_handler(error_handler)
 
