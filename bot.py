@@ -3049,6 +3049,19 @@ async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Нарушения могут привести к блокировке."
     )
 
+
+async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "🛠 Поддержка платформы\n\n"
+        "Если возникла проблема:\n"
+        "• спор по сделке\n"
+        "• подозрение на мошенничество\n"
+        "• баг платформы\n"
+        "• ошибка груза\n\n"
+        "Напишите администратору:\n"
+        "@your_support_username"
+    )
+
 def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
@@ -3079,6 +3092,7 @@ def main():
     app.add_handler(CommandHandler("topcarriers", topcarriers))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("rules", rules))
+    app.add_handler(CommandHandler("support", support))
     app.add_handler(CommandHandler("admin", admin))
     app.add_handler(CommandHandler("adminusers", adminusers))
     app.add_handler(CommandHandler("admincargo", admincargo))
