@@ -2924,6 +2924,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("🛠 Dashboard", callback_data="menu_dashboard"),
+            InlineKeyboardButton("⚙️ Админ", callback_data="menu_adminhelp"),
         ],
         [
             InlineKeyboardButton("ℹ️ Помощь", callback_data="menu_help"),
@@ -2975,6 +2976,9 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await rules(fake_update, context)
     if q.data == "menu_support":
         return await support(fake_update, context)
+
+    if q.data == "menu_adminhelp":
+        return await adminhelp(fake_update, context)
 
     if q.data == "menu_dashboard":
         user_id = await ensure_user(q.from_user)
