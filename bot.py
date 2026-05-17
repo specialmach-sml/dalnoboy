@@ -1528,6 +1528,10 @@ async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/deals — сделки\n\n"
         "📊 Сервис:\n"
         "/stats — статистика\n"
+        "/docs — документы\n"
+        "/rules — правила\n"
+        "/support — поддержка\n"
+        "/faq — частые вопросы\n"
         "/help — помощь"
     )
 
