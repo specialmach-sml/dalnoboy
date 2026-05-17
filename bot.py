@@ -1159,9 +1159,20 @@ async def adminreviews(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def version(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        db_ok = await DB.fetchval("SELECT 1")
+        db_status = "OK" if db_ok == 1 else "ERROR"
+    except Exception:
+        db_status = "ERROR"
+
     await update.message.reply_text(
-        f"🚛 Dalnoboy PRO\n"
-        f"Версия: {BOT_VERSION}"
+        f"🚛 Dalnoboy PRO
+"
+        f"Версия: {BOT_VERSION}
+"
+        f"PostgreSQL: {db_status}
+"
+        f"Режим: MVP"
     )
 
 
