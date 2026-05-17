@@ -20,6 +20,7 @@ from config import TOKEN, DB_DSN
 
 DB = None
 BOT_VERSION = datetime.now().strftime("%Y.%m.%d.%H%M")
+START_TIME = datetime.now()
 
 CARGO_FROM = 1
 CARGO_TO = 2
@@ -3113,6 +3114,19 @@ async def faq(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🏓 pong")
 
+
+async def uptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    delta = datetime.now() - START_TIME
+
+    days = delta.days
+    hours, rem = divmod(delta.seconds, 3600)
+    minutes, seconds = divmod(rem, 60)
+
+    await update.message.reply_text(
+        f"⏱ Uptime\\n\\n"
+        f"{days}d {hours}h {minutes}m {seconds}s"
+    )
+
 def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
@@ -3169,6 +3183,7 @@ def main():
     app.add_handler(CommandHandler("health", health))
     app.add_handler(CommandHandler("version", version))
     app.add_handler(CommandHandler("ping", ping))
+    app.add_handler(CommandHandler("uptime", uptime))
     app.add_handler(CommandHandler("logs", logs))
     app.add_handler(CommandHandler("errors", errors))
     app.add_handler(CommandHandler("status", status_cmd))
