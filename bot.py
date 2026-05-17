@@ -16,8 +16,7 @@ from telegram.ext import (
     ApplicationHandlerStop
 )
 
-TOKEN = "8634997756:AAEQziuv7zogJZYk3ZLk85JPKvvHYmU9UMQ"
-DB_DSN = "postgresql://postgres:postgres@127.0.0.1:5432/dalnoboy"
+from config import TOKEN, DB_DSN
 
 DB = None
 BOT_VERSION = datetime.now().strftime("%Y.%m.%d.%H%M")
