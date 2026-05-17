@@ -3037,6 +3037,18 @@ async def docs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Скоро добавим шаблоны прямо в бота."
     )
 
+
+async def rules(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "📜 Правила платформы\n\n"
+        "1. Запрещён спам\n"
+        "2. Запрещён фейковый груз\n"
+        "3. Уважайте участников платформы\n"
+        "4. Проверяйте документы перед сделкой\n"
+        "5. Не переводите деньги вне сделки\n\n"
+        "Нарушения могут привести к блокировке."
+    )
+
 def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
@@ -3066,6 +3078,7 @@ def main():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("topcarriers", topcarriers))
     app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("rules", rules))
     app.add_handler(CommandHandler("admin", admin))
     app.add_handler(CommandHandler("adminusers", adminusers))
     app.add_handler(CommandHandler("admincargo", admincargo))
