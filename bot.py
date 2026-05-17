@@ -2916,6 +2916,10 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("🛠 Dashboard", callback_data="menu_dashboard"),
         ],
+        [
+            InlineKeyboardButton("ℹ️ Помощь", callback_data="menu_help"),
+            InlineKeyboardButton("📄 Документы", callback_data="menu_docs"),
+        ],
     ]
 
     await update.message.reply_text(
@@ -2950,6 +2954,11 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await health(fake_update, context)
     if q.data == "menu_status":
         return await status_cmd(fake_update, context)
+    if q.data == "menu_help":
+        return await help_cmd(fake_update, context)
+    if q.data == "menu_docs":
+        return await docs(fake_update, context)
+
     if q.data == "menu_dashboard":
         user_id = await ensure_user(q.from_user)
 
