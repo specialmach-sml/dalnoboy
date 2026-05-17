@@ -3062,6 +3062,24 @@ async def support(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "@your_support_username"
     )
 
+
+async def faq(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "❓ FAQ Dalnoboy\n\n"
+        "🚛 Как добавить машину?\n"
+        "/truck Москва тент\n\n"
+        "📦 Как создать груз?\n"
+        "/newcargo\n\n"
+        "🔎 Как найти груз?\n"
+        "/find Москва\n\n"
+        "🤝 Где мои сделки?\n"
+        "/deals\n\n"
+        "📄 Где документы?\n"
+        "/docs\n\n"
+        "🛠 Поддержка:\n"
+        "/support"
+    )
+
 def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
@@ -3093,6 +3111,7 @@ def main():
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("rules", rules))
     app.add_handler(CommandHandler("support", support))
+    app.add_handler(CommandHandler("faq", faq))
     app.add_handler(CommandHandler("admin", admin))
     app.add_handler(CommandHandler("adminusers", adminusers))
     app.add_handler(CommandHandler("admincargo", admincargo))
