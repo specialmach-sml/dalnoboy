@@ -1166,12 +1166,9 @@ async def version(update: Update, context: ContextTypes.DEFAULT_TYPE):
         db_status = "ERROR"
 
     await update.message.reply_text(
-        f"🚛 Dalnoboy PRO
-"
-        f"Версия: {BOT_VERSION}
-"
-        f"PostgreSQL: {db_status}
-"
+        f"🚛 Dalnoboy PRO\n"
+        f"Версия: {BOT_VERSION}\n"
+        f"PostgreSQL: {db_status}\n"
         f"Режим: MVP"
     )
 
@@ -3112,6 +3109,10 @@ async def faq(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/support"
     )
 
+
+async def ping(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("🏓 pong")
+
 def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
@@ -3167,6 +3168,7 @@ def main():
     app.add_handler(CommandHandler("backupbot", backupbot))
     app.add_handler(CommandHandler("health", health))
     app.add_handler(CommandHandler("version", version))
+    app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("logs", logs))
     app.add_handler(CommandHandler("errors", errors))
     app.add_handler(CommandHandler("status", status_cmd))
