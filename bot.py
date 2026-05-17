@@ -400,9 +400,15 @@ async def truck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
-    user_verified = await DB.fetchval("""
-        SELECT verified FROM users WHERE id=$1
+    user = await DB.fetchrow("""
+        SELECT verified, plan_type, plan_expires_at
+        FROM users
+        WHERE id=$1
     """, user_id)
+
+    user_verified = user["verified"] if user else False
+    plan_type = user["plan_type"] if user and user["plan_type"] else "free"
+    plan_expires_at = user["plan_expires_at"] if user else None
 
     stats = await DB.fetchrow("""
         SELECT
@@ -430,7 +436,10 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, user_id)
 
     text = (
-        f"👤 Профиль перевозчика {'✅ Проверен' if user_verified else '⚠️ Не проверен'}\n\n"
+        f"👤 Профиль перевозчика {'✅ Проверен' if user_verified else '⚠️ Не проверен'}\n"
+        f"💼 Тариф: {plan_type.upper()}\n"
+        + (f"⏳ До: {plan_expires_at}\n" if plan_expires_at else "")
+        + "\n"
         f"⭐ Рейтинг: {stats['avg_score'] or 'нет оценок'}\n"
         f"💬 Отзывов: {stats['reviews_count']}\n"
         f"✅ Завершённых сделок: {deals_count}\n"
@@ -3136,6 +3145,51 @@ async def uptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{days}d {hours}h {minutes}m {seconds}s"
     )
 
+
+async def monetization(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if user_id != 1:
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
+    rows = await DB.fetch("""
+        SELECT COALESCE(plan_type, 'free') AS plan_type, COUNT(*) AS cnt
+        FROM users
+        GROUP BY COALESCE(plan_type, 'free')
+        ORDER BY cnt DESC
+    """)
+
+    active_subs = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM user_subscriptions
+        WHERE status='active'
+          AND (expires_at IS NULL OR expires_at > now())
+    """)
+
+    payments_count = await DB.fetchval("SELECT COUNT(*) FROM payments")
+
+    payments_sum = await DB.fetchval("""
+        SELECT COALESCE(SUM(amount_minor), 0)
+        FROM payments
+        WHERE deleted_at IS NULL
+    """)
+
+    text = "💰 Монетизация\n\n"
+
+    text += "👥 Пользователи по тарифам:\n"
+    for r in rows:
+        text += f"• {r['plan_type']}: {r['cnt']}\n"
+
+    text += (
+        f"\n🔁 Активных подписок: {active_subs}\n"
+        f"💳 Платежей всего: {payments_count}\n"
+        f"💵 Сумма платежей: {payments_sum / 100:.2f} RUB\n\n"
+        "Текущий режим: MVP, оплаты ещё не включены."
+    )
+
+    await update.message.reply_text(text)
+
 def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
@@ -3235,6 +3289,7 @@ def main():
     app.add_handler(CommandHandler("menu", menu))
     app.add_handler(CallbackQueryHandler(menu_button, pattern="^menu_"))
     app.add_handler(CommandHandler("dashboard", dashboard))
+    app.add_handler(CommandHandler("monetization", monetization))
 
     app.add_handler(CommandHandler("docs", docs))
 
