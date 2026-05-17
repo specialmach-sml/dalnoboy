@@ -266,6 +266,26 @@ async def mysubs(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+USER_LAST_ACTION = {}
+
+async def rate_limit_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_user = update.effective_user
+    if not tg_user:
+        return
+
+    now = datetime.now().timestamp()
+    last = USER_LAST_ACTION.get(tg_user.id, 0)
+
+    if now - last < 2:
+        if update.message:
+            await update.message.reply_text("⏳ Слишком часто. Подождите пару секунд.")
+        elif update.callback_query:
+            await update.callback_query.answer("⏳ Слишком часто", show_alert=False)
+        raise ApplicationHandlerStop
+
+    USER_LAST_ACTION[tg_user.id] = now
+
+
 async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -3031,7 +3051,8 @@ def main():
         fallbacks=[CommandHandler("cancel", newcargo_cancel)],
     )
 
-    app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-1)
+    app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
+    app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cargo", cargo))
