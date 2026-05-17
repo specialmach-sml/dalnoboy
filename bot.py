@@ -2338,16 +2338,21 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 response["truck_id"]
             )
 
-        await context.bot.send_message(
-            chat_id=response["telegram_id"],
-            text=(
-                f"✅ Ваш отклик принят!\n"
-                f"📦 Груз #{response['cargo_id']}: {response['from_city']} → {response['to_city']}\n"
-                f"🤝 Сделка создана"
+        try:
+            await context.bot.send_message(
+                chat_id=response["telegram_id"],
+                text=(
+                    f"✅ Ваш отклик принят!\n"
+                    f"📦 Груз #{response['cargo_id']}: {response['from_city']} → {response['to_city']}\n"
+                    f"🤝 Сделка создана"
+                )
             )
-        )
+        except Exception as e:
+            logging.error(f"accept notify failed: {e}")
 
-        await q.message.reply_text(f"✅ Отклик #{response_id} принят. Сделка создана.")
+        await q.message.reply_text(
+            f"✅ Отклик #{response_id} принят. Сделка создана."
+        )
         return
 
     if action == "reject":
