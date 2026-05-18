@@ -27,6 +27,12 @@ CARGO_TO = 2
 CARGO_DESC = 3
 CARGO_PRICE = 4
 
+TRUCK_CITY = 20
+TRUCK_BODY = 21
+TRUCK_TONS = 22
+TRUCK_VOLUME = 23
+TRUCK_COMMENT = 24
+
 
 
 logging.basicConfig(
@@ -329,6 +335,43 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    user_plan = await DB.fetchrow("""
+        SELECT COALESCE(plan_type, 'free') AS plan_type
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    plan = user_plan["plan_type"] if user_plan else "free"
+
+    active_count = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM route_subscriptions
+        WHERE user_id=$1
+          AND active=true
+    """, user_id)
+
+    limits = {
+        "free": 2,
+        "pro": 10,
+        "dispatcher": 999999,
+        "company": 999999
+    }
+
+    limit = limits.get(plan, 2)
+
+    if active_count >= limit:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("💼 Улучшить тариф", callback_data="menu_plans")]
+        ])
+
+        await update.message.reply_text(
+            f"⛔ Лимит подписок для тарифа {plan.upper()}: {limit}\n\n"
+            "🔥 PRO: до 10 маршрутов\n"
+            "⭐ COMPANY/DISPATCHER: без ограничений",
+            reply_markup=kb
+        )
+        return
+
     await DB.execute("""
         INSERT INTO route_subscriptions (
             user_id,
@@ -397,6 +440,428 @@ async def truck(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+
+async def truck_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["truck"] = {}
+
+    await update.message.reply_text(
+        "🚚 Добавление машины\n\n"
+        "📍 Введите текущий город:"
+    )
+
+    return TRUCK_CITY
+
+
+async def truck_city(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["truck"]["current_city"] = update.message.text.strip()
+
+    await update.message.reply_text(
+        "📦 Введите тип кузова:\n\n"
+        "Например: тент, реф, контейнер, сцепка"
+    )
+
+    return TRUCK_BODY
+
+
+async def truck_body(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["truck"]["body_type"] = update.message.text.strip()
+
+    await update.message.reply_text(
+        "⚖️ Введите грузоподъёмность в тоннах:\n\n"
+        "Например: 20"
+    )
+
+    return TRUCK_TONS
+
+
+async def truck_tons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw = update.message.text.strip().replace(",", ".")
+
+    try:
+        tons = float(raw)
+    except ValueError:
+        await update.message.reply_text("❌ Введите число, например: 20")
+        return TRUCK_TONS
+
+    context.user_data["truck"]["capacity_tons"] = tons
+
+    await update.message.reply_text(
+        "📦 Введите объём кузова м³:\n\n"
+        "Например: 82"
+    )
+
+    return TRUCK_VOLUME
+
+
+async def truck_volume(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw = update.message.text.strip().replace(",", ".")
+
+    try:
+        volume = float(raw)
+    except ValueError:
+        await update.message.reply_text("❌ Введите число, например: 82")
+        return TRUCK_VOLUME
+
+    context.user_data["truck"]["volume_m3"] = volume
+
+    await update.message.reply_text(
+        "📝 Комментарий к машине:\n\n"
+        "Например: ADR, верхняя загрузка, ремни\n\n"
+        "Или отправьте: -"
+    )
+
+    return TRUCK_COMMENT
+
+
+async def truck_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    comment = update.message.text.strip()
+
+    if comment == "-":
+        comment = ""
+
+    context.user_data["truck"]["comment"] = comment
+
+    data = context.user_data["truck"]
+
+    user_id = await ensure_user(update.effective_user)
+
+    existing = await DB.fetchrow("""
+        SELECT id
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    if existing:
+        await DB.execute("""
+            UPDATE trucks
+            SET
+                current_city=$1,
+                body_type=$2,
+                capacity_tons=$3,
+                volume_m3=$4,
+                comment=$5,
+                status='active'
+            WHERE id=$6
+        """,
+            data["current_city"],
+            data["body_type"],
+            data["capacity_tons"],
+            data["volume_m3"],
+            data["comment"],
+            existing["id"]
+        )
+
+        truck_id = existing["id"]
+
+    else:
+        row = await DB.fetchrow("""
+            INSERT INTO trucks (
+                company_id,
+                driver_id,
+                current_city,
+                body_type,
+                capacity_tons,
+                volume_m3,
+                comment,
+                status
+            )
+            VALUES (1,$1,$2,$3,$4,$5,$6,'active')
+            RETURNING id
+        """,
+            user_id,
+            data["current_city"],
+            data["body_type"],
+            data["capacity_tons"],
+            data["volume_m3"],
+            data["comment"]
+        )
+
+        truck_id = row["id"]
+
+    await update.message.reply_text(
+        f"✅ Машина сохранена #{truck_id}\n\n"
+        f"📍 Город: {data['current_city']}\n"
+        f"📦 Кузов: {data['body_type']}\n"
+        f"⚖️ Тоннаж: {data['capacity_tons']} т\n"
+        f"📦 Объём: {data['volume_m3']} м³\n"
+        f"📝 Комментарий: {data['comment'] or '-'}"
+    )
+
+    cargos = await DB.fetch("""
+        SELECT
+            c.id,
+            c.from_city,
+            c.to_city,
+            u.telegram_id
+        FROM cargo c
+        JOIN users u ON u.id = c.created_by
+        WHERE c.status='open'
+          AND (
+            c.from_city ILIKE $1
+            OR c.to_city ILIKE $1
+          )
+    """, data["current_city"])
+
+    for c in cargos:
+        try:
+            await context.bot.send_message(
+                chat_id=c["telegram_id"],
+                text=(
+                    f"🚚 Появилась новая машина\n\n"
+                    f"📍 {data['current_city']}\n"
+                    f"📦 {data['body_type']}\n"
+                    f"⚖️ {data['capacity_tons']} т\n"
+                    f"📦 {data['volume_m3']} м³\n\n"
+                    f"Для поиска: /findtruck {data['current_city']}"
+                )
+            )
+        except Exception:
+            pass
+
+    matched = await DB.fetch("""
+        SELECT
+            id,
+            from_city,
+            to_city,
+            price_amount,
+            price_currency
+        FROM cargo
+        WHERE status='open'
+          AND (
+            from_city ILIKE $1
+            OR to_city ILIKE $1
+          )
+        ORDER BY id DESC
+        LIMIT 5
+    """, data["current_city"])
+
+    if matched:
+        text = "📦 Подходящие грузы:\n\n"
+
+        for m in matched:
+            text += (
+                f"#{m['id']} "
+                f"{m['from_city']} → {m['to_city']}\n"
+                f"💰 {m['price_amount'] or '-'} {m['price_currency'] or ''}\n\n"
+            )
+
+        text += f"🔎 Открыть: /find {data['current_city']}"
+
+        await update.message.reply_text(text)
+
+    subs = await DB.fetch("""
+        SELECT DISTINCT u.telegram_id
+        FROM route_subscriptions rs
+        JOIN users u ON u.id = rs.user_id
+        WHERE rs.active=true
+          AND (
+            rs.from_city ILIKE $1
+            OR rs.to_city ILIKE $1
+            OR rs.from_city='*'
+            OR rs.to_city='*'
+          )
+          AND rs.user_id <> $2
+    """, data["current_city"], user_id)
+
+    for sub in subs:
+        try:
+            await context.bot.send_message(
+                chat_id=sub["telegram_id"],
+                text=(
+                    f"🚚 Новая машина по вашей подписке\n\n"
+                    f"📍 {data['current_city']}\n"
+                    f"📦 {data['body_type']}\n"
+                    f"⚖️ {data['capacity_tons']} т\n"
+                    f"📦 {data['volume_m3']} м³\n\n"
+                    f"🔎 Поиск: /findtruck {data['current_city']}"
+                )
+            )
+        except Exception:
+            pass
+
+    return ConversationHandler.END
+
+
+async def truck_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("❌ Добавление машины отменено")
+    return ConversationHandler.END
+
+
+
+
+async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    truck = await DB.fetchrow("""
+        SELECT
+            id,
+            current_city,
+            body_type,
+            capacity_tons,
+            volume_m3,
+            comment,
+            status,
+            created_at
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    if not truck:
+        await update.message.reply_text(
+            "🚚 У вас пока нет машины\\n\\n"
+            "Добавить: /truck"
+        )
+        return
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔁 Обновить в поиске", callback_data=f"truck_refresh_{truck['id']}")],
+        [InlineKeyboardButton("❌ Убрать из поиска", callback_data=f"truck_hide_{truck['id']}")]
+    ])
+
+    await update.message.reply_text(
+        f"🚚 Моя машина #{truck['id']}\\n\\n"
+        f"📍 Город: {truck['current_city'] or '-'}\\n"
+        f"📦 Кузов: {truck['body_type'] or '-'}\\n"
+        f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\\n"
+        f"📦 Объём: {truck['volume_m3'] or '-'} м³\\n"
+        f"📝 Комментарий: {truck['comment'] or '-'}\\n"
+        f"📊 Статус: {truck['status']}",
+        reply_markup=kb
+    )
+
+
+
+
+async def truck_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    truck_id = int(q.data.split("_")[2])
+    user_id = await ensure_user(q.from_user)
+
+    truck = await DB.fetchrow("""
+        SELECT
+            t.id,
+            t.driver_id,
+            t.refreshed_at,
+            COALESCE(u.plan_type, 'free') AS plan_type
+        FROM trucks t
+        JOIN users u ON u.id = t.driver_id
+        WHERE t.id=$1
+    """, truck_id)
+
+    if not truck:
+        await q.message.reply_text("❌ Машина не найдена")
+        return
+
+    if truck["driver_id"] != user_id:
+        await q.message.reply_text("⛔ Можно обновить только свою машину")
+        return
+
+    plan = truck["plan_type"] or "free"
+
+    if plan == "free":
+        can_refresh = await DB.fetchval("""
+            SELECT $1::timestamp IS NULL OR $1::timestamp < now() - interval '12 hours'
+        """, truck["refreshed_at"])
+
+        if not can_refresh:
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💼 Улучшить тариф", callback_data="menu_plans")]
+            ])
+
+            await q.message.reply_text(
+                "⛔ На тарифе FREE можно поднимать машину раз в 12 часов.\n\n"
+                "🔥 PRO: 1 раз в час\n"
+                "⭐ COMPANY: без ограничений",
+                reply_markup=kb
+            )
+            return
+
+    elif plan == "pro":
+        can_refresh = await DB.fetchval("""
+            SELECT $1::timestamp IS NULL OR $1::timestamp < now() - interval '1 hour'
+        """, truck["refreshed_at"])
+
+        if not can_refresh:
+            await q.message.reply_text(
+                "⛔ На тарифе PRO можно поднимать машину раз в 1 час.\n\n"
+                "Для безлимита нужен COMPANY."
+            )
+            return
+
+    await DB.execute("""
+        UPDATE trucks
+        SET status='active', created_at=now(), refreshed_at=now()
+        WHERE id=$1
+    """, truck_id)
+
+    await q.message.reply_text(f"🔁 Машина #{truck_id} обновлена в поиске")
+
+
+
+async def truck_hide(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    truck_id = int(q.data.split("_")[2])
+    user_id = await ensure_user(q.from_user)
+
+    truck = await DB.fetchrow("""
+        SELECT id, driver_id
+        FROM trucks
+        WHERE id=$1
+    """, truck_id)
+
+    if not truck:
+        await q.message.reply_text("❌ Машина не найдена")
+        return
+
+    if truck["driver_id"] != user_id:
+        await q.message.reply_text("⛔ Можно убрать только свою машину")
+        return
+
+    await DB.execute("""
+        UPDATE trucks
+        SET status='hidden'
+        WHERE id=$1
+    """, truck_id)
+
+    await q.message.reply_text(f"❌ Машина #{truck_id} убрана из поиска")
+
+
+
+async def plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💳 Подключить тариф", callback_data="buy_plan")]
+    ])
+
+    await update.message.reply_text(
+        "💼 Тарифы Dalnoboy\n\n"
+        "🆓 FREE\n"
+        "• 1 активный груз\n"
+        "• обычный показ в списке\n\n"
+        "🔥 PRO\n"
+        "• до 5 активных грузов\n"
+        "• выше FREE в поиске\n"
+        "• бейдж PRO\n\n"
+        "📡 DISPATCHER\n"
+        "• до 20 активных грузов\n"
+        "• для диспетчеров\n"
+        "• бейдж DISPATCHER\n\n"
+        "⭐ COMPANY\n"
+        "• без лимита грузов\n"
+        "• самый высокий приоритет\n"
+        "• бейдж COMPANY\n\n"
+        "Для подключения тарифа нажмите кнопку ниже.",
+        reply_markup=kb
+    )
+
+
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -462,9 +927,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = await DB.fetch("""
-        SELECT id, from_city, to_city, description, price_amount, price_currency, status
-        FROM cargo
-        ORDER BY id DESC
+        SELECT
+            c.id,
+            c.from_city,
+            c.to_city,
+            c.description,
+            c.price_amount,
+            c.price_currency,
+            c.status,
+            COALESCE(u.plan_type, 'free') AS plan_type
+        FROM cargo c
+        LEFT JOIN users u ON u.id = c.created_by
+        WHERE c.status='open'
+        ORDER BY
+            CASE
+                WHEN COALESCE(u.plan_type, 'free')='company' THEN 1
+                WHEN COALESCE(u.plan_type, 'free')='pro' THEN 2
+                WHEN COALESCE(u.plan_type, 'free')='dispatcher' THEN 3
+                ELSE 4
+            END,
+            c.id DESC
         LIMIT 10
     """)
 
@@ -473,8 +955,20 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     for r in rows:
+        plan_type = r["plan_type"] if "plan_type" in r and r["plan_type"] else "free"
+
+        if plan_type == "company":
+            badge = "⭐ COMPANY"
+        elif plan_type == "pro":
+            badge = "🔥 PRO"
+        elif plan_type == "dispatcher":
+            badge = "📡 DISPATCHER"
+        else:
+            badge = "FREE"
+
         text = (
             f"📦 Груз #{r['id']}\n"
+            f"🏷 Тариф: {badge}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
             f"📝 {r['description'] or 'Без описания'}\n"
             f"💰 {r['price_amount'] or '-'} {r['price_currency'] or ''}\n"
@@ -520,7 +1014,9 @@ async def mycargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ])
         else:
             kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("❌ Снять груз", callback_data=f"cargo_cancel_{r['id']}")]
+                [InlineKeyboardButton("❌ Снять груз", callback_data=f"cargo_cancel_{r['id']}")],
+                [InlineKeyboardButton("🔁 Повторить", callback_data=f"cargo_clone_{r['id']}")],
+                [InlineKeyboardButton("🔝 Поднять груз", callback_data=f"cargo_refresh_{r['id']}")]
             ])
 
         await update.message.reply_text(
@@ -532,6 +1028,136 @@ async def mycargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=kb
         )
 
+
+
+
+
+async def cargo_clone(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    cargo_id = int(q.data.split("_")[2])
+    user_id = await ensure_user(q.from_user)
+
+    cargo = await DB.fetchrow("""
+        SELECT
+            created_by,
+            from_city,
+            to_city,
+            description,
+            price_amount,
+            price_currency
+        FROM cargo
+        WHERE id=$1
+    """, cargo_id)
+
+    if not cargo:
+        await q.message.reply_text("❌ Груз не найден")
+        return
+
+    if cargo["created_by"] != user_id:
+        await q.message.reply_text("⛔ Можно повторить только свой груз")
+        return
+
+    row = await DB.fetchrow("""
+        INSERT INTO cargo (
+            created_by,
+            from_city,
+            to_city,
+            description,
+            price_amount,
+            price_currency,
+            status
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,'open')
+        RETURNING id
+    """,
+        user_id,
+        cargo["from_city"],
+        cargo["to_city"],
+        cargo["description"],
+        cargo["price_amount"],
+        cargo["price_currency"] or "RUB"
+    )
+
+    await q.message.reply_text(
+        f"🔁 Груз повторён #{row['id']}\n\n"
+        f"📍 {cargo['from_city']} → {cargo['to_city']}\n"
+        f"💰 {cargo['price_amount'] or '-'} {cargo['price_currency'] or ''}"
+    )
+
+
+
+
+async def cargo_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    cargo_id = int(q.data.split("_")[2])
+    user_id = await ensure_user(q.from_user)
+
+    cargo = await DB.fetchrow("""
+        SELECT
+            c.id,
+            c.created_by,
+            c.refreshed_at,
+            COALESCE(u.plan_type, 'free') AS plan_type
+        FROM cargo c
+        JOIN users u ON u.id = c.created_by
+        WHERE c.id=$1
+    """, cargo_id)
+
+    if not cargo:
+        await q.message.reply_text("❌ Груз не найден")
+        return
+
+    if cargo["created_by"] != user_id:
+        await q.message.reply_text("⛔ Можно поднимать только свой груз")
+        return
+
+    plan = cargo["plan_type"] or "free"
+
+    if plan == "free":
+        can_refresh = await DB.fetchval("""
+            SELECT $1::timestamp IS NULL
+            OR $1::timestamp < now() - interval '12 hours'
+        """, cargo["refreshed_at"])
+
+        if not can_refresh:
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("💼 Улучшить тариф", callback_data="menu_plans")]
+            ])
+
+            await q.message.reply_text(
+                "⛔ FREE: поднятие груза раз в 12 часов\n\n"
+                "🔥 PRO: раз в 1 час\n"
+                "⭐ COMPANY: без ограничений",
+                reply_markup=kb
+            )
+            return
+
+    elif plan == "pro":
+        can_refresh = await DB.fetchval("""
+            SELECT $1::timestamp IS NULL
+            OR $1::timestamp < now() - interval '1 hour'
+        """, cargo["refreshed_at"])
+
+        if not can_refresh:
+            await q.message.reply_text(
+                "⛔ PRO: поднятие груза раз в 1 час\n\n"
+                "⭐ COMPANY — без ограничений"
+            )
+            return
+
+    await DB.execute("""
+        UPDATE cargo
+        SET refreshed_at=now(), created_at=now()
+        WHERE id=$1
+    """, cargo_id)
+
+    await q.message.reply_text(
+        f"🔝 Груз #{cargo_id} поднят в поиске"
+    )
 
 
 
@@ -1728,8 +2354,12 @@ async def findtruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             t.id AS truck_id,
             t.current_city,
             t.body_type,
+            t.capacity_tons,
+            t.volume_m3,
+            t.comment,
             u.full_name,
             u.verified,
+            COALESCE(u.plan_type, 'free') AS plan_type,
             COALESCE(ROUND(AVG(rv.overall_score)::numeric, 2), 0) AS avg_score,
             COUNT(rv.id) AS reviews_count,
             (
@@ -1748,8 +2378,27 @@ async def findtruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             OR t.body_type ILIKE $1
             OR u.full_name ILIKE $1
           )
-        GROUP BY t.id, t.current_city, t.body_type, u.full_name, u.verified, t.driver_id
-        ORDER BY avg_score DESC, done_deals DESC
+        GROUP BY
+            t.id,
+            t.current_city,
+            t.body_type,
+            t.capacity_tons,
+            t.volume_m3,
+            t.comment,
+            u.full_name,
+            u.verified,
+            u.plan_type,
+            t.driver_id
+        ORDER BY
+            CASE
+                WHEN COALESCE(u.plan_type, 'free')='company' THEN 1
+                WHEN COALESCE(u.plan_type, 'free')='dispatcher' THEN 2
+                WHEN COALESCE(u.plan_type, 'free')='pro' THEN 3
+                ELSE 4
+            END,
+            COALESCE(t.refreshed_at, t.created_at) DESC,
+            avg_score DESC,
+            done_deals DESC
         LIMIT 20
     """, f"%{query}%")
 
@@ -1758,17 +2407,231 @@ async def findtruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     for r in rows:
+        plan_type = r["plan_type"] or "free"
+
+        if plan_type == "company":
+            badge = "⭐ COMPANY"
+        elif plan_type == "dispatcher":
+            badge = "📡 DISPATCHER"
+        elif plan_type == "pro":
+            badge = "🔥 PRO"
+        else:
+            badge = "FREE"
+
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "👤 Профиль",
+                    callback_data=f"driver_profile_{r['truck_id']}"
+                ),
+                InlineKeyboardButton(
+                    "🤝 Сделка",
+                    callback_data=f"truck_deal_{r['truck_id']}"
+                )
+            ]
+        ])
+
         await update.message.reply_text(
             f"🚚 Машина #{r['truck_id']}\n"
+            f"🏷 Тариф: {badge}\n"
             f"👤 Водитель: {r['full_name']} {'✅' if r['verified'] else '⚠️'}\n"
             f"📍 Город: {r['current_city']}\n"
             f"📦 Кузов: {r['body_type']}\n"
+            f"⚖️ Тоннаж: {r['capacity_tons'] or '-'} т\n"
+            f"📦 Объём: {r['volume_m3'] or '-'} м³\n"
+            f"📝 Комментарий: {r['comment'] or '-'}\n"
             f"⭐ Рейтинг: {r['avg_score'] or 'нет'} ({r['reviews_count']} отзывов)\n"
-            f"✅ Завершённых сделок: {r['done_deals']}"
+            f"✅ Завершённых сделок: {r['done_deals']}",
+            reply_markup=kb
         )
 
 
 
+
+
+
+
+async def driver_profile_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    truck_id = int(q.data.split("_")[2])
+
+    row = await DB.fetchrow("""
+        SELECT
+            t.id AS truck_id,
+            u.id AS user_id,
+            u.full_name,
+            u.verified,
+            COALESCE(u.plan_type, 'free') AS plan_type,
+            t.current_city,
+            t.body_type,
+            t.capacity_tons,
+            t.volume_m3,
+            t.comment,
+            COALESCE(ROUND(AVG(rv.overall_score)::numeric, 2), 0) AS avg_score,
+            COUNT(rv.id) AS reviews_count
+        FROM trucks t
+        JOIN users u ON u.id = t.driver_id
+        LEFT JOIN reviews rv ON rv.to_user_id = u.id AND rv.deleted_at IS NULL
+        WHERE t.id=$1
+        GROUP BY
+            t.id, u.id, u.full_name, u.verified, u.plan_type,
+            t.current_city, t.body_type, t.capacity_tons, t.volume_m3, t.comment
+    """, truck_id)
+
+    if not row:
+        await q.message.reply_text("❌ Машина не найдена")
+        return
+
+    await q.message.reply_text(
+        f"👤 Профиль водителя #{row['user_id']}\n\n"
+        f"Имя: {row['full_name'] or '-'} {'✅' if row['verified'] else '⚠️'}\n"
+        f"Тариф: {row['plan_type'].upper()}\n"
+        f"⭐ Рейтинг: {row['avg_score'] or 'нет'} ({row['reviews_count']} отзывов)\n\n"
+        f"🚚 Машина #{row['truck_id']}\n"
+        f"📍 Город: {row['current_city'] or '-'}\n"
+        f"📦 Кузов: {row['body_type'] or '-'}\n"
+        f"⚖️ Тоннаж: {row['capacity_tons'] or '-'} т\n"
+        f"📦 Объём: {row['volume_m3'] or '-'} м³\n"
+        f"📝 Комментарий: {row['comment'] or '-'}"
+    )
+
+
+
+
+async def truck_deal_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    user_id = await ensure_user(q.from_user)
+
+    truck_id = int(q.data.split("_")[2])
+
+    cargos = await DB.fetch("""
+        SELECT
+            id,
+            from_city,
+            to_city,
+            description,
+            price_amount
+        FROM cargo
+        WHERE created_by=$1
+          AND status='open'
+        ORDER BY id DESC
+        LIMIT 10
+    """, user_id)
+
+    if not cargos:
+        await q.message.reply_text(
+            "📦 У вас нет открытых грузов\\n\\n"
+            "Создать груз: /newcargo"
+        )
+        return
+
+    buttons = []
+
+    for c in cargos:
+        buttons.append([
+            InlineKeyboardButton(
+                f"📦 #{c['id']} {c['from_city']} → {c['to_city']}",
+                callback_data=f"create_deal_{truck_id}_{c['id']}"
+            )
+        ])
+
+    kb = InlineKeyboardMarkup(buttons)
+
+    await q.message.reply_text(
+        "🤝 Выберите груз для сделки:",
+        reply_markup=kb
+    )
+
+
+
+
+async def create_deal_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    user_id = await ensure_user(q.from_user)
+
+    parts = q.data.split("_")
+    truck_id = int(parts[2])
+    cargo_id = int(parts[3])
+
+    cargo = await DB.fetchrow("""
+        SELECT id, created_by, from_city, to_city
+        FROM cargo
+        WHERE id=$1
+          AND status='open'
+    """, cargo_id)
+
+    if not cargo:
+        await q.message.reply_text("❌ Груз не найден или уже закрыт")
+        return
+
+    if cargo["created_by"] != user_id:
+        await q.message.reply_text("⛔ Это не ваш груз")
+        return
+
+    truck = await DB.fetchrow("""
+        SELECT
+            t.id,
+            t.driver_id,
+            u.telegram_id,
+            u.full_name
+        FROM trucks t
+        JOIN users u ON u.id = t.driver_id
+        WHERE t.id=$1
+          AND t.status='active'
+    """, truck_id)
+
+    if not truck:
+        await q.message.reply_text("❌ Машина не найдена")
+        return
+
+    existing = await DB.fetchrow("""
+        SELECT id
+        FROM deals
+        WHERE cargo_id=$1
+          AND truck_id=$2
+          AND status IN ('pending','active')
+        LIMIT 1
+    """, cargo_id, truck_id)
+
+    if existing:
+        await q.message.reply_text(f"⚠️ Сделка уже создана #{existing['id']}")
+        return
+
+    row = await DB.fetchrow("""
+        INSERT INTO deals (
+            cargo_id,
+            truck_id,
+            status,
+            driver_chat_id
+        )
+        VALUES ($1,$2,'pending',$3)
+        RETURNING id
+    """, cargo_id, truck_id, truck["telegram_id"])
+
+    await q.message.reply_text(
+        f"✅ Сделка создана #{row['id']}\n\n"
+        f"📦 Груз #{cargo_id}: {cargo['from_city']} → {cargo['to_city']}\n"
+        f"🚚 Машина #{truck_id}\n"
+        f"👤 Водитель: {truck['full_name'] or '-'}"
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id=truck["telegram_id"],
+            text=(
+                f"🤝 Вам предложили сделку #{row['id']}\n\n"
+                f"📦 Груз: {cargo['from_city']} → {cargo['to_city']}\n"
+                f"Откройте /deals"
+            )
+        )
+    except Exception:
+        pass
 
 
 
@@ -2398,8 +3261,8 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         FROM deals d
         JOIN cargo c ON c.id = d.cargo_id
         JOIN trucks t ON t.id = d.truck_id
-        JOIN responses r ON r.id = d.response_id
-        WHERE c.created_by=$1 OR r.driver_id=$1
+        LEFT JOIN responses r ON r.id = d.response_id
+        WHERE c.created_by=$1 OR t.driver_id=$1 OR r.driver_id=$1
         ORDER BY d.id DESC
         LIMIT 20
     """, user_id)
@@ -2632,8 +3495,9 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         FROM deals d
         JOIN cargo c ON c.id = d.cargo_id
         JOIN users owner ON owner.id = c.created_by
-        JOIN responses r ON r.id = d.response_id
-        JOIN users driver ON driver.id = r.driver_id
+        LEFT JOIN responses r ON r.id = d.response_id
+        JOIN trucks t ON t.id = d.truck_id
+        JOIN users driver ON driver.id = COALESCE(r.driver_id, t.driver_id)
         WHERE d.id=$1
     """, deal_id)
 
@@ -2787,6 +3651,39 @@ async def rate_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def newcargo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_user = update.effective_user
+    user_id = await ensure_user(tg_user)
+
+    user = await DB.fetchrow("""
+        SELECT COALESCE(plan_type, 'free') AS plan_type
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    plan_type = user["plan_type"]
+
+    active_cargo = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM cargo
+        WHERE created_by=$1
+          AND status='open'
+    """, user_id)
+
+    limits = {
+        "free": 1,
+        "pro": 5,
+        "dispatcher": 20,
+        "company": 999999
+    }
+
+    limit = limits.get(plan_type, 1)
+
+    if active_cargo >= limit:
+        await update.message.reply_text(
+            f"⛔ Лимит активных грузов для тарифа {plan_type.upper()}: {limit}"
+        )
+        return ConversationHandler.END
+
     context.user_data["newcargo"] = {}
     await update.message.reply_text("📍 Введите город загрузки:")
     return CARGO_FROM
@@ -2867,7 +3764,7 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     subs = await DB.fetch("""
-        SELECT u.telegram_id
+        SELECT u.id AS user_id, u.telegram_id
         FROM route_subscriptions rs
         JOIN users u ON u.id = rs.user_id
         WHERE rs.active=true
@@ -2877,6 +3774,20 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, data["from_city"], data["to_city"], user_id)
 
     for sub in subs:
+        inserted = await DB.fetchrow("""
+            INSERT INTO notification_log (
+                user_id,
+                entity_type,
+                entity_id
+            )
+            VALUES ($1,'cargo',$2)
+            ON CONFLICT (user_id, entity_type, entity_id) DO NOTHING
+            RETURNING id
+        """, sub["user_id"], row["id"])
+
+        if not inserted:
+            continue
+
         try:
             await context.bot.send_message(
                 chat_id=sub["telegram_id"],
@@ -2910,6 +3821,48 @@ async def post_init(app: Application):
     await init_db()
 
 
+async def admin_setplan_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    admin_id = await ensure_user(update.effective_user)
+    if admin_id != 1:
+        await q.message.reply_text("⛔ Нет доступа")
+        return
+
+    parts = q.data.split("_")
+    target_id = int(parts[2])
+    plan = parts[3]
+
+    allowed = ["free", "pro", "dispatcher", "company"]
+    if plan not in allowed:
+        await q.message.reply_text("❌ Неизвестный тариф")
+        return
+
+    row = await DB.fetchrow("""
+        UPDATE users
+        SET plan_type=$1
+        WHERE id=$2
+        RETURNING telegram_id, full_name
+    """, plan, target_id)
+
+    if not row:
+        await q.message.reply_text("❌ Пользователь не найден")
+        return
+
+    await q.message.reply_text(
+        f"✅ Пользователь #{target_id} переведён на тариф {plan.upper()}"
+    )
+
+    try:
+        await context.bot.send_message(
+            chat_id=row["telegram_id"],
+            text=f"✅ Вам подключён тариф {plan.upper()}"
+        )
+    except Exception:
+        pass
+
+
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
@@ -2931,6 +3884,9 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [
             InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
             InlineKeyboardButton("🚚 Машина", callback_data="menu_truck"),
+        ],
+        [
+            InlineKeyboardButton("💼 Тарифы", callback_data="menu_plans"),
         ],
         [
             InlineKeyboardButton("❤️ Здоровье", callback_data="menu_health"),
@@ -2970,12 +3926,53 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await responses_list(fake_update, context)
     if q.data == "menu_profile":
         return await profile(fake_update, context)
+    if q.data == "menu_plans":
+        return await plans(fake_update, context)
+
+    if q.data == "buy_plan":
+        user_id = await ensure_user(update.effective_user)
+        tg_user = update.effective_user
+
+        await q.message.reply_text(
+            f"✅ Заявка отправлена администратору.\n\n"
+            f"🆔 Ваш ID: {user_id}"
+        )
+
+        admin_kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("🔥 PRO", callback_data=f"admin_setplan_{user_id}_pro"),
+                InlineKeyboardButton("📡 DISPATCHER", callback_data=f"admin_setplan_{user_id}_dispatcher"),
+            ],
+            [
+                InlineKeyboardButton("⭐ COMPANY", callback_data=f"admin_setplan_{user_id}_company"),
+                InlineKeyboardButton("🆓 FREE", callback_data=f"admin_setplan_{user_id}_free"),
+            ],
+        ])
+
+        username = f"@{tg_user.username}" if tg_user.username else "-"
+
+        try:
+            await context.bot.send_message(
+                chat_id=439871270,
+                text=(
+                    "💳 Новая заявка на тариф\n\n"
+                    f"User ID: {user_id}\n"
+                    f"Telegram ID: {tg_user.id}\n"
+                    f"Имя: {tg_user.full_name or '-'}\n"
+                    f"Username: {username}"
+                ),
+                reply_markup=admin_kb
+            )
+        except Exception:
+            pass
+
+        return
+
     if q.data == "menu_truck":
         await q.message.reply_text(
-            "🚚 Добавить или обновить машину:\n\n"
-            "Напиши команду так:\n"
-            "/truck Москва тент\n\n"
-            "Первое слово — город, дальше — тип кузова."
+            "🚚 Добавление машины\n\n"
+            "Для запуска анкеты отправьте команду:\n"
+            "/truck"
         )
         return
     if q.data == "menu_health":
@@ -3190,6 +4187,47 @@ async def monetization(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text)
 
+
+async def setplan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    admin_id = await ensure_user(update.effective_user)
+
+    if admin_id != 1:
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Используй:\n"
+            "/setplan USER_ID free\n"
+            "/setplan USER_ID pro\n"
+            "/setplan USER_ID dispatcher\n"
+            "/setplan USER_ID company"
+        )
+        return
+
+    try:
+        target_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("USER_ID должен быть числом")
+        return
+
+    plan = context.args[1].lower()
+
+    allowed = ["free", "pro", "dispatcher", "company"]
+    if plan not in allowed:
+        await update.message.reply_text("Тариф должен быть: free, pro, dispatcher, company")
+        return
+
+    await DB.execute("""
+        UPDATE users
+        SET plan_type=$1
+        WHERE id=$2
+    """, plan, target_id)
+
+    await update.message.reply_text(
+        f"✅ User #{target_id} переведён на тариф {plan.upper()}"
+    )
+
 def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
@@ -3204,6 +4242,21 @@ def main():
         fallbacks=[CommandHandler("cancel", newcargo_cancel)],
     )
 
+    truck_handler = ConversationHandler(
+        entry_points=[CommandHandler("truck", truck_start)],
+        states={
+            TRUCK_CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, truck_city)],
+            TRUCK_BODY: [MessageHandler(filters.TEXT & ~filters.COMMAND, truck_body)],
+            TRUCK_TONS: [MessageHandler(filters.TEXT & ~filters.COMMAND, truck_tons)],
+            TRUCK_VOLUME: [MessageHandler(filters.TEXT & ~filters.COMMAND, truck_volume)],
+            TRUCK_COMMENT: [MessageHandler(filters.TEXT & ~filters.COMMAND, truck_comment)],
+        },
+        fallbacks=[CommandHandler("cancel", truck_cancel)],
+    )
+
+    app.add_handler(newcargo_handler)
+    app.add_handler(truck_handler)
+
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
@@ -3213,6 +4266,7 @@ def main():
     app.add_handler(CommandHandler("routes", routes))
     app.add_handler(CommandHandler("subroutes", subroutes))
     app.add_handler(CommandHandler("findtruck", findtruck))
+    app.add_handler(CommandHandler("mytruck", mytruck))
     app.add_handler(CommandHandler("findprice", findprice))
     app.add_handler(CommandHandler("mycargo", mycargo))
     app.add_handler(CommandHandler("deletedcargo", deletedcargo))
@@ -3259,11 +4313,15 @@ def main():
     app.add_handler(CommandHandler("searchdeal", searchdeal))
     app.add_handler(CommandHandler("deals", deals_list))
     app.add_handler(CommandHandler("profile", profile))
+    app.add_handler(CommandHandler("plans", plans))
     app.add_handler(CommandHandler("truck", truck))
     app.add_handler(CommandHandler("subscribe", subscribe))
+    app.add_handler(CommandHandler("sub", subscribe))
     app.add_handler(CommandHandler("mysubs", mysubs))
     app.add_handler(newcargo_handler)
 
+    app.add_handler(CallbackQueryHandler(cargo_refresh, pattern="^cargo_refresh_"))
+    app.add_handler(CallbackQueryHandler(cargo_clone, pattern="^cargo_clone_"))
     app.add_handler(CallbackQueryHandler(cargo_cancel, pattern="^cargo_cancel_"))
     app.add_handler(CallbackQueryHandler(cargo_open, pattern="^cargo_open_"))
     app.add_handler(CallbackQueryHandler(cargo_delete, pattern="^cargo_delete_"))
@@ -3274,6 +4332,7 @@ def main():
     app.add_handler(CallbackQueryHandler(response_action, pattern="^(accept|reject)_"))
     app.add_handler(CallbackQueryHandler(deal_closedispute_button, pattern="^deal_closedispute_"))
     app.add_handler(CallbackQueryHandler(deal_dispute_button, pattern="^deal_dispute_"))
+    app.add_handler(CallbackQueryHandler(admin_setplan_button, pattern="^admin_setplan_"))
     app.add_handler(CallbackQueryHandler(admin_dispute_buttons, pattern="^admin_(dealchat|notes|close_dispute)_"))
     app.add_handler(CallbackQueryHandler(deal_reason_help, pattern="^deal_reason_help_"))
     app.add_handler(CallbackQueryHandler(deal_write_help, pattern="^deal_write_help_"))
@@ -3284,12 +4343,18 @@ def main():
     app.add_handler(CallbackQueryHandler(sub_delete, pattern="^sub_delete_"))
     app.add_handler(CallbackQueryHandler(sub_on, pattern="^sub_on_"))
     app.add_handler(CallbackQueryHandler(sub_off, pattern="^sub_off_"))
+    app.add_handler(CallbackQueryHandler(driver_profile_button, pattern="^driver_profile_"))
+    app.add_handler(CallbackQueryHandler(truck_refresh, pattern="^truck_refresh_"))
+    app.add_handler(CallbackQueryHandler(truck_hide, pattern="^truck_hide_"))
+    app.add_handler(CallbackQueryHandler(truck_deal_button, pattern="^truck_deal_"))
+    app.add_handler(CallbackQueryHandler(create_deal_button, pattern="^create_deal_"))
     app.add_handler(CallbackQueryHandler(rate_action, pattern="^rate_"))
 
     app.add_handler(CommandHandler("menu", menu))
-    app.add_handler(CallbackQueryHandler(menu_button, pattern="^menu_"))
+    app.add_handler(CallbackQueryHandler(menu_button, pattern="^(menu_|buy_plan)"))
     app.add_handler(CommandHandler("dashboard", dashboard))
     app.add_handler(CommandHandler("monetization", monetization))
+    app.add_handler(CommandHandler("setplan", setplan))
 
     app.add_handler(CommandHandler("docs", docs))
 
