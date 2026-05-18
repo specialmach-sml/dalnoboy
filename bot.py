@@ -4,7 +4,7 @@ import subprocess
 from datetime import datetime
 import asyncpg
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -35,6 +35,21 @@ TRUCK_COMMENT = 24
 
 
 
+
+
+
+
+def main_reply_keyboard():
+    return ReplyKeyboardMarkup(
+        [
+            ["📦 Грузы", "🚚 Машина"],
+            ["🤝 Сделки", "👤 Профиль"],
+            ["🏠 Меню", "🆘 Помощь"]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=False,
+        is_persistent=True
+    )
 
 
 def format_price(v):
@@ -68,12 +83,21 @@ async def init_db():
     print("✅ DB CONNECTED")
 
 async def ensure_user(tg_user):
+    if not tg_user or getattr(tg_user, "is_bot", False):
+        return None
+
     row = await DB.fetchrow("""
         SELECT id, banned FROM users
         WHERE telegram_id=$1
     """, tg_user.id)
 
     if row:
+        await DB.execute("""
+            UPDATE users
+            SET full_name=$1
+            WHERE telegram_id=$2
+        """, tg_user.full_name, tg_user.id)
+
         return row["id"]
 
     new_user = await DB.fetchrow("""
@@ -888,14 +912,31 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
     user = await DB.fetchrow("""
-        SELECT verified, plan_type, plan_expires_at
+        SELECT full_name, role, verified, plan_type, plan_expires_at, created_at
         FROM users
         WHERE id=$1
     """, user_id)
 
+    full_name = user["full_name"] if user and user["full_name"] else update.effective_user.full_name
+    role = user["role"] if user and user["role"] else "driver"
     user_verified = user["verified"] if user else False
     plan_type = user["plan_type"] if user and user["plan_type"] else "free"
     plan_expires_at = user["plan_expires_at"] if user else None
+    created_at = user["created_at"] if user else None
+
+    plan_badges = {
+        "company": "⭐ COMPANY",
+        "pro": "🔥 PRO",
+        "dispatcher": "📡 DISPATCHER",
+        "free": "🆓 FREE"
+    }
+
+    role_badges = {
+        "admin": "🛠 Админ",
+        "driver": "🚚 Водитель",
+        "company": "🏢 Компания",
+        "dispatcher": "📡 Диспетчер"
+    }
 
     stats = await DB.fetchrow("""
         SELECT
@@ -906,16 +947,43 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
           AND deleted_at IS NULL
     """, user_id)
 
-    deals_count = await DB.fetchval("""
+    trucks_count = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM trucks
+        WHERE driver_id=$1
+    """, user_id)
+
+    deals_total = await DB.fetchval("""
         SELECT COUNT(*)
         FROM deals d
-        JOIN responses r ON r.id = d.response_id
-        WHERE r.driver_id=$1
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        LEFT JOIN responses r ON r.id = d.response_id
+        WHERE c.created_by=$1 OR t.driver_id=$1 OR r.driver_id=$1
+    """, user_id)
+
+    deals_done = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        LEFT JOIN responses r ON r.id = d.response_id
+        WHERE (c.created_by=$1 OR t.driver_id=$1 OR r.driver_id=$1)
           AND d.status='done'
     """, user_id)
 
+    deals_active = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        LEFT JOIN responses r ON r.id = d.response_id
+        WHERE (c.created_by=$1 OR t.driver_id=$1 OR r.driver_id=$1)
+          AND d.status IN ('pending','active','in_progress')
+    """, user_id)
+
     truck = await DB.fetchrow("""
-        SELECT id, current_city, body_type
+        SELECT id, current_city, body_type, capacity_tons, volume_m3
         FROM trucks
         WHERE driver_id=$1
         ORDER BY id DESC
@@ -923,20 +991,27 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, user_id)
 
     text = (
-        f"👤 Профиль перевозчика {'✅ Проверен' if user_verified else '⚠️ Не проверен'}\n"
-        f"💼 Тариф: {plan_type.upper()}\n"
-        + (f"⏳ До: {plan_expires_at}\n" if plan_expires_at else "")
+        f"👤 {full_name}\n"
+        f"{'✅ Проверен' if user_verified else '⚠️ Не проверен'}\n"
+        f"Роль: {role_badges.get(role, role)}\n"
+        f"Тариф: {plan_badges.get(plan_type, plan_type.upper())}\n"
+        + (f"⏳ Тариф до: {plan_expires_at}\n" if plan_expires_at else "")
+        + (f"📅 На платформе с: {created_at.date()}\n" if created_at else "")
         + "\n"
         f"⭐ Рейтинг: {stats['avg_score'] or 'нет оценок'}\n"
         f"💬 Отзывов: {stats['reviews_count']}\n"
-        f"✅ Завершённых сделок: {deals_count}\n"
+        f"🚚 Машин: {trucks_count}\n"
+        f"🤝 Сделок всего: {deals_total}\n"
+        f"🚚 Активных сделок: {deals_active}\n"
+        f"✅ Выполнено: {deals_done}\n"
     )
 
     if truck:
         text += (
-            f"\n🚚 Машина #{truck['id']}\n"
-            f"📍 Город: {truck['current_city']}\n"
-            f"📦 Кузов: {truck['body_type']}"
+            f"\n🚚 Основная машина #{truck['id']}\n"
+            f"📍 {truck['current_city']}\n"
+            f"📦 {truck['body_type']}\n"
+            f"⚖️ {truck['capacity_tons']} т | {truck['volume_m3']} м³"
         )
     else:
         text += "\n🚚 Машина не добавлена"
@@ -946,6 +1021,10 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ensure_user(update.effective_user)
+    await update.message.reply_text(
+        "🚛 Добро пожаловать в Dalnoboy Bros!",
+        reply_markup=main_reply_keyboard()
+    )
     await menu(update, context)
 
 async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3918,6 +3997,23 @@ async def newcargo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text
+
+    if text == "📦 Грузы":
+        return await cargo(update, context)
+    if text == "🚚 Машина":
+        return await truck(update, context)
+    if text == "🤝 Сделки":
+        return await deals_list(update, context)
+    if text == "👤 Профиль":
+        return await profile(update, context)
+    if text == "🏠 Меню":
+        return await menu(update, context)
+    if text == "🆘 Помощь":
+        return await help_cmd(update, context)
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.exception("BOT ERROR", exc_info=context.error)
 
@@ -3971,15 +4067,11 @@ async def admin_setplan_button(update: Update, context: ContextTypes.DEFAULT_TYP
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [
-            InlineKeyboardButton("📅 Сегодня", callback_data="menu_today"),
             InlineKeyboardButton("📦 Грузы", callback_data="menu_cargo"),
-        ],
-        [
             InlineKeyboardButton("➕ Создать груз", callback_data="menu_newcargo"),
-            InlineKeyboardButton("📦 Мои грузы", callback_data="menu_mycargo"),
         ],
         [
-            InlineKeyboardButton("🔎 Поиск груза", callback_data="menu_findcargo"),
+            InlineKeyboardButton("🚚 Моя машина", callback_data="menu_truck"),
             InlineKeyboardButton("🔍 Найти машину", callback_data="menu_findtruck"),
         ],
         [
@@ -3988,32 +4080,22 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
-            InlineKeyboardButton("🚚 Машина", callback_data="menu_truck"),
-        ],
-        [
-            InlineKeyboardButton("💼 Тарифы", callback_data="menu_plans"),
-        ],
-        [
-            InlineKeyboardButton("❤️ Здоровье", callback_data="menu_health"),
-            InlineKeyboardButton("📊 Статус", callback_data="menu_status"),
-        ],
-        [
-            InlineKeyboardButton("🛠 Dashboard", callback_data="menu_dashboard"),
-            InlineKeyboardButton("⚙️ Админ", callback_data="menu_adminhelp"),
+            InlineKeyboardButton("💳 Тарифы", callback_data="menu_plans"),
         ],
         [
             InlineKeyboardButton("ℹ️ Помощь", callback_data="menu_help"),
-            InlineKeyboardButton("📄 Документы", callback_data="menu_docs"),
-        ],
-        [
-            InlineKeyboardButton("📜 Правила", callback_data="menu_rules"),
-            InlineKeyboardButton("🛠 Поддержка", callback_data="menu_support"),
+            InlineKeyboardButton("🛟 Поддержка", callback_data="menu_support"),
         ],
     ]
 
     await update.message.reply_text(
-        "🚛 Главное меню:",
+        "🏠 Главное меню\n\nВыберите действие:",
         reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+    await update.message.reply_text(
+        "Нижнее меню включено 👇",
+        reply_markup=main_reply_keyboard()
     )
 
 
@@ -4457,6 +4539,7 @@ def main():
     app.add_handler(CallbackQueryHandler(rate_action, pattern="^rate_"))
 
     app.add_handler(CommandHandler("menu", menu))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню|🆘 Помощь)$"), reply_menu_handler))
     app.add_handler(CallbackQueryHandler(menu_button, pattern="^(menu_|buy_plan)"))
     app.add_handler(CommandHandler("dashboard", dashboard))
     app.add_handler(CommandHandler("monetization", monetization))
