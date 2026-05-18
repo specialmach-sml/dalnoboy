@@ -35,6 +35,28 @@ TRUCK_COMMENT = 24
 
 
 
+
+
+def format_price(v):
+    if v is None:
+        return "-"
+    try:
+        return f"{int(float(v)):,}".replace(",", " ")
+    except:
+        return str(v)
+
+def human_status(v):
+    mapping = {
+        "open": "🟢 Открыт",
+        "pending": "🟡 Ожидает",
+        "active": "🚚 В пути",
+        "done": "✅ Завершён",
+        "closed": "❌ Закрыт",
+        "cancelled": "❌ Отменён"
+    }
+    return mapping.get(v, v)
+
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(levelname)s - %(message)s"
@@ -644,7 +666,7 @@ async def truck_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += (
                 f"#{m['id']} "
                 f"{m['from_city']} → {m['to_city']}\n"
-                f"💰 {m['price_amount'] or '-'} {m['price_currency'] or ''}\n\n"
+                f"💰 {format_price(m['price_amount'])} {m['price_currency'] or ''}\n\n"
             )
 
         text += f"🔎 Открыть: /find {data['current_city']}"
@@ -729,7 +751,7 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\\n"
         f"📦 Объём: {truck['volume_m3'] or '-'} м³\\n"
         f"📝 Комментарий: {truck['comment'] or '-'}\\n"
-        f"📊 Статус: {truck['status']}",
+        f"📊 Статус: {human_status(truck['status'])}",
         reply_markup=kb
     )
 
@@ -923,6 +945,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await ensure_user(update.effective_user)
     await menu(update, context)
 
 async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -971,8 +994,8 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🏷 Тариф: {badge}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
             f"📝 {r['description'] or 'Без описания'}\n"
-            f"💰 {r['price_amount'] or '-'} {r['price_currency'] or ''}\n"
-            f"📊 Статус: {r['status']}"
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
+            f"📊 Статус: {human_status(r['status'])}"
         )
 
         kb = InlineKeyboardMarkup([
@@ -1023,8 +1046,8 @@ async def mycargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📦 Мой груз #{r['id']}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
             f"📝 {r['description'] or 'Без описания'}\n"
-            f"💰 {r['price_amount'] or '-'} {r['price_currency'] or ''}\n"
-            f"📊 Статус: {r['status']}",
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
+            f"📊 Статус: {human_status(r['status'])}",
             reply_markup=kb
         )
 
@@ -1083,7 +1106,7 @@ async def cargo_clone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.message.reply_text(
         f"🔁 Груз повторён #{row['id']}\n\n"
         f"📍 {cargo['from_city']} → {cargo['to_city']}\n"
-        f"💰 {cargo['price_amount'] or '-'} {cargo['price_currency'] or ''}"
+        f"💰 {format_price(cargo['price_amount'])} {cargo['price_currency'] or ''}"
     )
 
 
@@ -1399,8 +1422,8 @@ async def admincargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += (
             f"#{r['id']} | user {r['created_by']}\n"
             f"{r['from_city']} → {r['to_city']}\n"
-            f"💰 {r['price_amount'] or '-'} {r['price_currency'] or ''}\n"
-            f"Статус: {r['status']}\n\n"
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
+            f"Статус: {human_status(r['status'])}\n\n"
         )
 
     await update.message.reply_text(text)
@@ -1594,9 +1617,9 @@ async def admindisputes(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for r in rows:
         text += (
-            f"Сделка #{r['id']} | статус: {r['status']}\n"
+            f"Сделка #{r['id']} | статус: {human_status(r['status'])}\n"
             f"{r['from_city']} → {r['to_city']}\n"
-            f"💰 {r['price_amount'] or '-'} {r['price_currency'] or ''}\n"
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
             f"Заказчик user {r['created_by']} | водитель user {r['driver_id']}\n\n"
         )
 
@@ -1676,8 +1699,8 @@ async def admindeals(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += (
             f"#{r['id']} | driver {r['driver_id']}\n"
             f"{r['from_city']} → {r['to_city']}\n"
-            f"💰 {r['price_amount'] or '-'} {r['price_currency'] or ''}\n"
-            f"Статус: {r['status']}\n\n"
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
+            f"Статус: {human_status(r['status'])}\n\n"
         )
 
     await update.message.reply_text(text)
@@ -1721,7 +1744,7 @@ async def adminreports(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"#{r['id']} | груз {r['cargo_id']} | user {r['user_id']}\n"
             f"{r['from_city']} → {r['to_city']}\n"
             f"Причина: {r['reason']}\n"
-            f"Статус: {r['status']}\n\n"
+            f"Статус: {human_status(r['status'])}\n\n"
         )
 
     kb = InlineKeyboardMarkup([
@@ -2262,7 +2285,7 @@ async def deletedcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🗑 Удалённый груз #{r['id']}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
             f"📝 {r['description'] or 'Без описания'}\n"
-            f"💰 {r['price_amount'] or '-'} {r['price_currency'] or ''}",
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}",
             reply_markup=kb
         )
 
@@ -2336,8 +2359,8 @@ async def findprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💰 Груз #{r['id']}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
             f"📝 {r['description'] or 'Без описания'}\n"
-            f"💰 {r['price_amount'] or '-'} {r['price_currency'] or ''}\n"
-            f"📊 Статус: {r['status']}",
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
+            f"📊 Статус: {human_status(r['status'])}",
             reply_markup=kb
         )
 
@@ -2708,8 +2731,8 @@ async def find_cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🔎 Найден груз #{r['id']}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
             f"📝 {r['description'] or 'Без описания'}\n"
-            f"💰 {r['price_amount'] or '-'} {r['price_currency'] or ''}\n"
-            f"📊 Статус: {r['status']}"
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
+            f"📊 Статус: {human_status(r['status'])}"
         )
 
         kb = InlineKeyboardMarkup([
@@ -2816,7 +2839,11 @@ async def replydeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if other_tg:
         await context.bot.send_message(
             chat_id=other_tg,
-            text=f"💬 Новое сообщение в сделке #{deal_id}\nОткрыть: /dealchat {deal_id}"
+            text=f"💬 Новое сообщение в сделке #{deal_id}\n\n{text}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💬 Ответить", callback_data=f"deal_chat_{deal_id}")],
+                [InlineKeyboardButton("📖 История чата", callback_data=f"deal_chat_{deal_id}")]
+            ])
         )
 
     await update.message.reply_text(f"💬 Ответ отправлен в сделку #{deal_id}")
@@ -3101,7 +3128,11 @@ async def dealmsg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if other_tg:
         await context.bot.send_message(
             chat_id=other_tg,
-            text=f"💬 Новое сообщение в сделке #{deal_id}\nОткрыть: /dealchat {deal_id}"
+            text=f"💬 Новое сообщение в сделке #{deal_id}\n\n{text}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💬 Ответить", callback_data=f"deal_chat_{deal_id}")],
+                [InlineKeyboardButton("📖 История чата", callback_data=f"deal_chat_{deal_id}")]
+            ])
         )
 
     await update.message.reply_text(
@@ -3144,7 +3175,7 @@ async def responses_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📦 Груз #{r['cargo_id']}: {r['from_city']} → {r['to_city']}\n"
             f"👤 Водитель: {r['full_name']} {'✅' if r['verified'] else '⚠️'}\n"
             f"🚚 Машина #{r['truck_id']}: {r['current_city']}, {r['body_type']}\n"
-            f"📊 Статус: {r['status']}\n"
+            f"📊 Статус: {human_status(r['status'])}\n"
             f"💬 {r['message']}"
         )
 
@@ -3275,11 +3306,11 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = (
             f"🤝 Сделка #{r['id']}\n"
             f"📦 Груз #{r['cargo_id']}: {r['from_city']} → {r['to_city']}\n"
-            f"💰 {r['price_amount'] or '-'} {r['price_currency'] or ''}\n"
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
             f"🚚 Машина #{r['truck_id']}: {r['current_city']}, {r['body_type']}\n"
             f"💬 Сообщений: {r['messages_count']}\n"
             + ("⚠️ Спор открыт\n" if r["dispute"] else "")
-            + f"📊 Статус: {r['status']}"
+            + f"📊 Статус: {human_status(r['status'])}"
         )
 
         buttons = [
@@ -3463,12 +3494,86 @@ async def deal_chat_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await q.answer()
 
     deal_id = int(q.data.split("_")[2])
+    context.user_data["chat_deal_id"] = deal_id
 
     await q.message.reply_text(
-        f"💬 Чат сделки #{deal_id}\n"
-        f"Посмотреть: /dealchat {deal_id}\n"
-        f"Написать: /dealmsg {deal_id} ваш текст"
+        f"💬 Чат сделки #{deal_id}\n\n"
+        f"Напишите сообщение обычным текстом.\n"
+        f"История: /dealchat {deal_id}\n"
+        f"Отмена: /cancel"
     )
+
+
+async def deal_chat_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    deal_id = context.user_data.get("chat_deal_id")
+
+    if not deal_id:
+        return
+
+    user_id = await ensure_user(update.effective_user)
+    text = update.message.text.strip()
+
+    if text == "/cancel":
+        context.user_data.pop("chat_deal_id", None)
+        await update.message.reply_text("❌ Отменено")
+        return
+
+    deal = await DB.fetchrow("""
+        SELECT
+            d.id,
+            c.created_by,
+            COALESCE(r.driver_id, t.driver_id) AS driver_id
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        LEFT JOIN responses r ON r.id = d.response_id
+        WHERE d.id=$1
+    """, deal_id)
+
+    if not deal:
+        context.user_data.pop("chat_deal_id", None)
+        await update.message.reply_text("❌ Сделка не найдена")
+        return
+
+    if user_id not in [deal["created_by"], deal["driver_id"]]:
+        context.user_data.pop("chat_deal_id", None)
+        await update.message.reply_text("⛔ Нет доступа к этой сделке")
+        return
+
+    await DB.execute("""
+        INSERT INTO deal_messages (
+            deal_id,
+            from_user_id,
+            message_text
+        )
+        VALUES ($1,$2,$3)
+    """, deal_id, user_id, text)
+
+    other_tg = await DB.fetchval("""
+        SELECT u.telegram_id
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        LEFT JOIN responses r ON r.id = d.response_id
+        JOIN users u ON u.id = CASE
+            WHEN $2 = c.created_by THEN COALESCE(r.driver_id, t.driver_id)
+            ELSE c.created_by
+        END
+        WHERE d.id=$1
+    """, deal_id, user_id)
+
+    if other_tg:
+        await context.bot.send_message(
+            chat_id=other_tg,
+            text=f"💬 Новое сообщение в сделке #{deal_id}\n\n{text}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("💬 Ответить", callback_data=f"deal_chat_{deal_id}")],
+                [InlineKeyboardButton("📖 История чата", callback_data=f"deal_chat_{deal_id}")]
+            ])
+        )
+
+    context.user_data.pop("chat_deal_id", None)
+    await update.message.reply_text(f"✅ Сообщение отправлено в сделку #{deal_id}")
 
 
 async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4312,6 +4417,7 @@ def main():
     app.add_handler(CommandHandler("replydeal", replydeal))
     app.add_handler(CommandHandler("searchdeal", searchdeal))
     app.add_handler(CommandHandler("deals", deals_list))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text))
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("plans", plans))
     app.add_handler(CommandHandler("truck", truck))
