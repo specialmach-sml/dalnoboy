@@ -188,8 +188,14 @@ async def subroute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, user_id, cargo["from_city"], cargo["to_city"])
 
     await q.message.reply_text(
-        f"🔔 Подписка добавлена:\n"
-        f"{cargo['from_city']} → {cargo['to_city']}"
+        f"✅ Подписка активна\n\n"
+        f"Будем присылать новые грузы по маршруту:\n"
+        f"🚩 {cargo['from_city']} → {cargo['to_city']}\n\n"
+        f"Вы получите уведомление, когда появится подходящий груз.",
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📋 Мои подписки", callback_data="menu_mysubs")],
+            [InlineKeyboardButton("📦 Смотреть грузы", callback_data="menu_cargo")]
+        ])
     )
 
 
@@ -2872,6 +2878,34 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Отклик от {tg_user.full_name}"
     )
 
+    owner = await DB.fetchrow("""
+        SELECT
+            u.telegram_id,
+            c.from_city,
+            c.to_city
+        FROM cargo c
+        JOIN users u ON u.id = c.created_by
+        WHERE c.id=$1
+    """, cargo_id)
+
+    if owner and owner["telegram_id"]:
+        try:
+            await context.bot.send_message(
+                chat_id=owner["telegram_id"],
+                text=(
+                    f"📨 Новый отклик на ваш груз\n\n"
+                    f"📦 Груз #{cargo_id}\n"
+                    f"🚩 {owner['from_city']} → {owner['to_city']}\n"
+                    f"👤 Водитель: {tg_user.full_name}"
+                ),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📨 Смотреть отклики", callback_data="menu_responses")],
+                    [InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals")]
+                ])
+            )
+        except Exception as e:
+            logging.warning(f"Response notify failed: {e}")
+
     await q.message.reply_text("✅ Отклик отправлен")
 
 
@@ -3332,8 +3366,24 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"accept notify failed: {e}")
 
+        deal_id = await DB.fetchval("""
+            SELECT id
+            FROM deals
+            WHERE response_id=$1
+            LIMIT 1
+        """, response_id)
+
+        await q.edit_message_reply_markup(reply_markup=None)
+
         await q.message.reply_text(
-            f"✅ Отклик #{response_id} принят. Сделка создана."
+            (
+                f"✅ Отклик #{response_id} принят\n\n"
+                f"📦 {response['from_city']} → {response['to_city']}\n"
+                f"🤝 Сделка #{deal_id} создана"
+            ),
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🤝 Открыть сделку", callback_data="menu_deals")]
+            ])
         )
         return
 
@@ -3976,12 +4026,18 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=sub["telegram_id"],
                 text=(
-                    f"🔔 Новый груз по вашей подписке\n"
-                    f"📦 #{row['id']}\n"
+                    f"🔔 Новый груз по вашей подписке\n\n"
+                    f"📦 Груз #{row['id']}\n"
                     f"🚩 {data['from_city']} → {data['to_city']}\n"
-                    f"💰 {data['price_amount']} RUB\n"
-                    f"Открыть список: /cargo"
-                )
+                    f"📝 {data['description']}\n"
+                    f"💰 {format_price(data['price_amount'])} RUB\n"
+                    f"🏷 COMPANY"
+                ),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{row['id']}")],
+                    [InlineKeyboardButton("📦 Смотреть грузы", callback_data="menu_cargo")],
+                    [InlineKeyboardButton("📋 Мои подписки", callback_data="menu_mysubs")]
+                ])
             )
         except Exception as e:
             logging.warning(f"Subscription notify failed: {e}")
@@ -4111,6 +4167,8 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await deals_list(fake_update, context)
     if q.data == "menu_responses":
         return await responses_list(fake_update, context)
+    if q.data == "menu_mysubs":
+        return await mysubs(fake_update, context)
     if q.data == "menu_profile":
         return await profile(fake_update, context)
     if q.data == "menu_plans":
@@ -4499,6 +4557,7 @@ def main():
     app.add_handler(CommandHandler("replydeal", replydeal))
     app.add_handler(CommandHandler("searchdeal", searchdeal))
     app.add_handler(CommandHandler("deals", deals_list))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню|🆘 Помощь)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text))
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("plans", plans))
@@ -4539,7 +4598,6 @@ def main():
     app.add_handler(CallbackQueryHandler(rate_action, pattern="^rate_"))
 
     app.add_handler(CommandHandler("menu", menu))
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню|🆘 Помощь)$"), reply_menu_handler))
     app.add_handler(CallbackQueryHandler(menu_button, pattern="^(menu_|buy_plan)"))
     app.add_handler(CommandHandler("dashboard", dashboard))
     app.add_handler(CommandHandler("monetization", monetization))
