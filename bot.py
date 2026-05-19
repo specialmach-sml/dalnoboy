@@ -755,7 +755,13 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             volume_m3,
             comment,
             status,
-            created_at
+            created_at,
+            brand,
+            model,
+            plate_number,
+            latitude,
+            longitude,
+            location_updated_at
         FROM trucks
         WHERE driver_id=$1
         ORDER BY id DESC
@@ -764,7 +770,7 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not truck:
         await update.message.reply_text(
-            "🚚 У вас пока нет машины\\n\\n"
+            "🚚 У вас пока нет машины\n\n"
             "Добавить: /truck"
         )
         return
@@ -775,12 +781,17 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ])
 
     await update.message.reply_text(
-        f"🚚 Моя машина #{truck['id']}\\n\\n"
-        f"📍 Город: {truck['current_city'] or '-'}\\n"
-        f"📦 Кузов: {truck['body_type'] or '-'}\\n"
-        f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\\n"
-        f"📦 Объём: {truck['volume_m3'] or '-'} м³\\n"
-        f"📝 Комментарий: {truck['comment'] or '-'}\\n"
+        f"🚚 Моя машина #{truck['id']}\n\n"
+        f"🚛 Марка: {truck['brand'] or '-'}\n"
+        f"🔤 Модель: {truck['model'] or '-'}\n"
+        f"🔢 Номер: {truck['plate_number'] or '-'}\n"
+        f"📍 Город: {truck['current_city'] or '-'}\n"
+        f"📦 Кузов: {truck['body_type'] or '-'}\n"
+        f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\n"
+        f"📦 Объём: {truck['volume_m3'] or '-'} м³\n"
+        f"🌐 Гео: {(str(round(float(truck['latitude']), 4)) + ', ' + str(round(float(truck['longitude']), 4))) if truck['latitude'] and truck['longitude'] else '-'}\n"
+        f"🕒 Гео обновлено: {truck['location_updated_at'] or '-'}\n"
+        f"📝 Комментарий: {truck['comment'] or '-'}\n"
         f"📊 Статус: {human_status(truck['status'])}",
         reply_markup=kb
     )
@@ -2632,7 +2643,7 @@ async def truck_deal_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not cargos:
         await q.message.reply_text(
-            "📦 У вас нет открытых грузов\\n\\n"
+            "📦 У вас нет открытых грузов\n\n"
             "Создать груз: /newcargo"
         )
         return
@@ -4131,6 +4142,89 @@ async def newcargo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def location_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Используй: /location LAT LON")
+        return
+
+    try:
+        lat = float(context.args[0].replace(",", "."))
+        lon = float(context.args[1].replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("❌ Координаты должны быть числами")
+        return
+
+    truck = await DB.fetchrow("""
+        SELECT id
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    if not truck:
+        await update.message.reply_text("🚚 Сначала добавьте машину через 🚚 Машина")
+        return
+
+    await DB.execute("""
+        UPDATE trucks
+        SET latitude=$1,
+            longitude=$2,
+            location_updated_at=now(),
+            status='active'
+        WHERE id=$3
+    """, lat, lon, truck["id"])
+
+    await update.message.reply_text(
+        f"📍 Геолокация сохранена\n\n"
+        f"🚚 Машина #{truck['id']}\n"
+        f"Широта: {lat}\n"
+        f"Долгота: {lon}"
+    )
+
+
+async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if not update.message.location:
+        return
+
+    lat = update.message.location.latitude
+    lon = update.message.location.longitude
+
+    truck = await DB.fetchrow("""
+        SELECT id
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    if not truck:
+        await update.message.reply_text(
+            "🚚 Сначала добавьте машину через кнопку 🚚 Машина"
+        )
+        return
+
+    await DB.execute("""
+        UPDATE trucks
+        SET latitude=$1,
+            longitude=$2,
+            location_updated_at=now(),
+            status='active'
+        WHERE id=$3
+    """, lat, lon, truck["id"])
+
+    await update.message.reply_text(
+        f"📍 Геолокация сохранена\n\n"
+        f"🚚 Машина #{truck['id']}\n"
+        f"Широта: {lat}\n"
+        f"Долгота: {lon}"
+    )
+
+
 async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
 
@@ -4464,7 +4558,7 @@ async def uptime(update: Update, context: ContextTypes.DEFAULT_TYPE):
     minutes, seconds = divmod(rem, 60)
 
     await update.message.reply_text(
-        f"⏱ Uptime\\n\\n"
+        f"⏱ Uptime\n\n"
         f"{days}d {hours}h {minutes}m {seconds}s"
     )
 
@@ -4582,6 +4676,7 @@ def main():
 
     app.add_handler(newcargo_handler)
     app.add_handler(truck_handler)
+    app.add_handler(MessageHandler(filters.LOCATION, location_handler))
 
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
@@ -4643,6 +4738,7 @@ def main():
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("plans", plans))
     app.add_handler(CommandHandler("truck", truck))
+    app.add_handler(CommandHandler("location", location_cmd))
     app.add_handler(CommandHandler("subscribe", subscribe))
     app.add_handler(CommandHandler("sub", subscribe))
     app.add_handler(CommandHandler("mysubs", mysubs))
