@@ -42,9 +42,9 @@ TRUCK_COMMENT = 24
 def main_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
-            ["📦 Грузы", "🚚 Машина"],
-            ["🤝 Сделки", "👤 Профиль"],
-            ["🏠 Меню", "🆘 Помощь"]
+            ["📦 Грузы", "➕ Груз"],
+            ["🚚 Машина", "🤝 Сделки"],
+            ["👤 Профиль", "🏠 Меню"]
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -3879,6 +3879,27 @@ async def rate_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         score
     )
 
+    other_tg = await DB.fetchval("""
+        SELECT telegram_id
+        FROM users
+        WHERE id=$1
+    """, to_user_id)
+
+    if other_tg:
+        try:
+            await context.bot.send_message(
+                chat_id=other_tg,
+                text=(
+                    f"⭐ Вам оставили отзыв\n\n"
+                    f"Оценка: {score}⭐\n"
+                    f"🤝 Сделка #{deal_id}"
+                )
+            )
+        except Exception as e:
+            logging.warning(f"review notify failed: {e}")
+
+    await q.edit_message_reply_markup(reply_markup=None)
+
     await q.message.reply_text(
         f"✅ Оценка {score}⭐ сохранена"
     )
@@ -4042,6 +4063,63 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.warning(f"Subscription notify failed: {e}")
 
+    matched_trucks = await DB.fetch("""
+        SELECT DISTINCT
+            t.id AS truck_id,
+            t.driver_id,
+            t.current_city,
+            t.body_type,
+            t.capacity_tons,
+            t.volume_m3,
+            u.telegram_id
+        FROM trucks t
+        JOIN users u ON u.id = t.driver_id
+        WHERE t.status='active'
+          AND t.driver_id <> $3
+          AND (
+            t.current_city ILIKE $1
+            OR t.current_city ILIKE $2
+            OR COALESCE(t.preferred_from, '') ILIKE $1
+            OR COALESCE(t.preferred_to, '') ILIKE $2
+          )
+        LIMIT 20
+    """, data["from_city"], data["to_city"], user_id)
+
+    for mt in matched_trucks:
+        inserted = await DB.fetchrow("""
+            INSERT INTO notification_log (
+                user_id,
+                entity_type,
+                entity_id
+            )
+            VALUES ($1,'truck_match_cargo',$2)
+            ON CONFLICT (user_id, entity_type, entity_id) DO NOTHING
+            RETURNING id
+        """, mt["driver_id"], row["id"])
+
+        if not inserted:
+            continue
+
+        try:
+            await context.bot.send_message(
+                chat_id=mt["telegram_id"],
+                text=(
+                    f"🎯 Подходящий груз для вашей машины\n\n"
+                    f"📦 Груз #{row['id']}\n"
+                    f"🚩 {data['from_city']} → {data['to_city']}\n"
+                    f"📝 {data['description']}\n"
+                    f"💰 {format_price(data['price_amount'])} RUB\n\n"
+                    f"🚚 Ваша машина #{mt['truck_id']}: {mt['current_city']}, {mt['body_type']}\n"
+                    f"⚖️ {mt['capacity_tons']} т | {mt['volume_m3']} м³"
+                ),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{row['id']}")],
+                    [InlineKeyboardButton("📦 Смотреть грузы", callback_data="menu_cargo")]
+                ])
+            )
+        except Exception as e:
+            logging.warning(f"Truck match notify failed: {e}")
+
     context.user_data.pop("newcargo", None)
     return ConversationHandler.END
 
@@ -4058,8 +4136,11 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if text == "📦 Грузы":
         return await cargo(update, context)
+    if text == "➕ Груз":
+        await update.message.reply_text("Чтобы создать груз, нажмите: /newcargo")
+        return
     if text == "🚚 Машина":
-        return await truck(update, context)
+        return await mytruck(update, context)
     if text == "🤝 Сделки":
         return await deals_list(update, context)
     if text == "👤 Профиль":
@@ -4557,7 +4638,7 @@ def main():
     app.add_handler(CommandHandler("replydeal", replydeal))
     app.add_handler(CommandHandler("searchdeal", searchdeal))
     app.add_handler(CommandHandler("deals", deals_list))
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню|🆘 Помощь)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|➕ Груз|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text))
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("plans", plans))
