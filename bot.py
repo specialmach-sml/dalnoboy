@@ -57,9 +57,10 @@ TRUCK_COMMENT = 24
 def main_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
-            ["📦 Грузы", "➕ Груз"],
-            ["🚚 Машина", "🤝 Сделки"],
-            ["👤 Профиль", "🏠 Меню"]
+            ["📦 Грузы", "📍 Рядом"],
+            ["➕ Груз", "🚚 Машина"],
+            ["🤝 Сделки", "👤 Профиль"],
+            ["🏠 Меню"]
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -4181,6 +4182,82 @@ async def newcargo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    radius = 50
+
+    if context.args:
+        try:
+            radius = int(context.args[0])
+        except:
+            pass
+
+    truck = await DB.fetchrow("""
+        SELECT latitude, longitude
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    if not truck or not truck["latitude"] or not truck["longitude"]:
+        await update.message.reply_text(
+            "📍 Сначала отправьте геолокацию через /location LAT LON"
+        )
+        return
+
+    rows = await DB.fetch("""
+        SELECT
+            id,
+            from_city,
+            to_city,
+            description,
+            price_amount,
+            load_latitude,
+            load_longitude
+        FROM cargo
+        WHERE status='open'
+          AND load_latitude IS NOT NULL
+          AND load_longitude IS NOT NULL
+        ORDER BY id DESC
+        LIMIT 100
+    """)
+
+    found = []
+
+    for r in rows:
+        dist = distance_km(
+            truck["latitude"],
+            truck["longitude"],
+            r["load_latitude"],
+            r["load_longitude"]
+        )
+
+        if dist is not None and dist <= radius:
+            found.append((dist, r))
+
+    found.sort(key=lambda x: x[0])
+
+    if not found:
+        await update.message.reply_text(
+            f"📭 Грузов рядом ({radius} км) не найдено"
+        )
+        return
+
+    for dist, r in found[:20]:
+        await update.message.reply_text(
+            f"📦 Груз #{r['id']}\n"
+            f"🚩 {r['from_city']} → {r['to_city']}\n"
+            f"💰 {format_price(r['price_amount'])} RUB\n"
+            f"📍 {dist} км до загрузки\n"
+            f"📝 {r['description'] or '-'}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
+            ])
+        )
+
+
 async def cargogeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -4313,6 +4390,9 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if text == "📦 Грузы":
         return await cargo(update, context)
+    if text == "📍 Рядом":
+        context.args = ["50"]
+        return await nearby(update, context)
     if text == "➕ Груз":
         await update.message.reply_text("Чтобы создать груз, нажмите: /newcargo")
         return
@@ -4816,13 +4896,14 @@ def main():
     app.add_handler(CommandHandler("replydeal", replydeal))
     app.add_handler(CommandHandler("searchdeal", searchdeal))
     app.add_handler(CommandHandler("deals", deals_list))
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|➕ Груз|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📍 Рядом|➕ Груз|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text))
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("plans", plans))
     app.add_handler(CommandHandler("truck", truck))
     app.add_handler(CommandHandler("location", location_cmd))
     app.add_handler(CommandHandler("cargogeo", cargogeo))
+    app.add_handler(CommandHandler("nearby", nearby))
     app.add_handler(CommandHandler("subscribe", subscribe))
     app.add_handler(CommandHandler("sub", subscribe))
     app.add_handler(CommandHandler("mysubs", mysubs))
