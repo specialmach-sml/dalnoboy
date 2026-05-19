@@ -4,6 +4,21 @@ import subprocess
 from datetime import datetime
 import asyncpg
 
+from math import radians, sin, cos, sqrt, atan2
+
+def distance_km(lat1, lon1, lat2, lon2):
+    try:
+        lat1, lon1, lat2, lon2 = map(float, [lat1, lon1, lat2, lon2])
+        r = 6371
+        dlat = radians(lat2 - lat1)
+        dlon = radians(lon2 - lon1)
+        a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+        c = 2 * atan2(sqrt(a), sqrt(1 - a))
+        return round(r * c)
+    except Exception:
+        return None
+
+
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
 from telegram.ext import (
     Application,
@@ -1054,6 +1069,8 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             c.price_amount,
             c.price_currency,
             c.status,
+            c.load_latitude,
+            c.load_longitude,
             COALESCE(u.plan_type, 'free') AS plan_type
         FROM cargo c
         LEFT JOIN users u ON u.id = c.created_by
@@ -1073,7 +1090,26 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("📦 Нет грузов")
         return
 
+    user_id = await ensure_user(update.effective_user)
+
+    my_truck = await DB.fetchrow("""
+        SELECT latitude, longitude
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    rows_with_distance = []
     for r in rows:
+        dist = None
+        if my_truck and my_truck["latitude"] and my_truck["longitude"] and r["load_latitude"] and r["load_longitude"]:
+            dist = distance_km(my_truck["latitude"], my_truck["longitude"], r["load_latitude"], r["load_longitude"])
+        rows_with_distance.append((dist, r))
+
+    rows_with_distance.sort(key=lambda x: (x[0] is None, x[0] if x[0] is not None else 999999))
+
+    for dist, r in rows_with_distance:
         plan_type = r["plan_type"] if "plan_type" in r and r["plan_type"] else "free"
 
         if plan_type == "company":
@@ -1085,6 +1121,8 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             badge = "FREE"
 
+        distance_line = f"\n📍 До загрузки: {dist} км" if dist is not None else ""
+
         text = (
             f"📦 Груз #{r['id']}\n"
             f"🏷 Тариф: {badge}\n"
@@ -1092,6 +1130,7 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📝 {r['description'] or 'Без описания'}\n"
             f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
             f"📊 Статус: {human_status(r['status'])}"
+            f"{distance_line}"
         )
 
         kb = InlineKeyboardMarkup([
@@ -4142,6 +4181,50 @@ async def newcargo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def cargogeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if len(context.args) < 3:
+        await update.message.reply_text("Используй: /cargogeo CARGO_ID LAT LON")
+        return
+
+    try:
+        cargo_id = int(context.args[0])
+        lat = float(context.args[1].replace(",", "."))
+        lon = float(context.args[2].replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("❌ Пример: /cargogeo 1 55.7558 37.6173")
+        return
+
+    cargo = await DB.fetchrow("""
+        SELECT id, created_by, from_city, to_city
+        FROM cargo
+        WHERE id=$1
+    """, cargo_id)
+
+    if not cargo:
+        await update.message.reply_text("❌ Груз не найден")
+        return
+
+    if cargo["created_by"] != user_id:
+        await update.message.reply_text("⛔ Можно обновить гео только своего груза")
+        return
+
+    await DB.execute("""
+        UPDATE cargo
+        SET load_latitude=$1,
+            load_longitude=$2
+        WHERE id=$3
+    """, lat, lon, cargo_id)
+
+    await update.message.reply_text(
+        f"📍 Гео загрузки сохранено\n\n"
+        f"📦 Груз #{cargo_id}\n"
+        f"🚩 {cargo['from_city']} → {cargo['to_city']}\n"
+        f"🌐 {round(lat, 4)}, {round(lon, 4)}"
+    )
+
+
 async def location_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -4739,6 +4822,7 @@ def main():
     app.add_handler(CommandHandler("plans", plans))
     app.add_handler(CommandHandler("truck", truck))
     app.add_handler(CommandHandler("location", location_cmd))
+    app.add_handler(CommandHandler("cargogeo", cargogeo))
     app.add_handler(CommandHandler("subscribe", subscribe))
     app.add_handler(CommandHandler("sub", subscribe))
     app.add_handler(CommandHandler("mysubs", mysubs))
