@@ -4740,8 +4740,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if text == "⚙️ Настройки":
         return await truck_settings(update, context)
     if text == "➕ Груз":
-        await update.message.reply_text("Чтобы создать груз, нажмите: /newcargo")
-        return
+        return await newcargo_start(update, context)
     if text == "🚚 Машина":
         return await mytruck(update, context)
     if text == "🤝 Сделки":
