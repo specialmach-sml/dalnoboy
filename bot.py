@@ -1,3 +1,4 @@
+import aiohttp
 import logging
 import shutil
 import subprocess
@@ -58,6 +59,8 @@ def main_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
             ["📦 Грузы", "📍 Рядом"],
+            ["🟢 Выгодные"],
+            ["⚙️ Настройки"],
             ["➕ Груз", "🚚 Машина"],
             ["🤝 Сделки", "👤 Профиль"],
             ["🏠 Меню"]
@@ -793,6 +796,7 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 Обновить в поиске", callback_data=f"truck_refresh_{truck['id']}")],
+        [InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby")],
         [InlineKeyboardButton("❌ Убрать из поиска", callback_data=f"truck_hide_{truck['id']}")]
     ])
 
@@ -1094,7 +1098,7 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
     my_truck = await DB.fetchrow("""
-        SELECT latitude, longitude
+        SELECT latitude, longitude, min_rate_per_km, search_radius_km
         FROM trucks
         WHERE driver_id=$1
         ORDER BY id DESC
@@ -4182,10 +4186,161 @@ async def newcargo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+
+
+
+
+
+
+
+
+async def settings_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    fake_update = Update(update.update_id, message=q.message)
+
+    if q.data == "settings_rate":
+        context.user_data["awaiting_rate"] = True
+        await q.message.reply_text("💰 Введите минимальную ставку ₽/км\n\nНапример: 35")
+        return
+
+    if q.data == "settings_geo":
+        kb = ReplyKeyboardMarkup(
+            [[KeyboardButton("📍 Отправить геолокацию", request_location=True)]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+        await q.message.reply_text(
+            "📍 Нажмите кнопку ниже, чтобы отправить текущую геолокацию",
+            reply_markup=kb
+        )
+        return
+
+    if q.data == "settings_radius":
+        await q.message.reply_text("🛣 Введите радиус поиска в км\n\nНапример: 100")
+        context.user_data["awaiting_radius"] = True
+        return
+
+
+
+async def settings_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    if q.data == "settings_rate":
+        context.user_data["awaiting_rate"] = True
+        await q.message.reply_text("💰 Введите минимальную ставку ₽/км\n\nНапример: 35")
+        return
+
+    if q.data == "settings_geo":
+        kb = ReplyKeyboardMarkup(
+            [[KeyboardButton("📍 Отправить геолокацию", request_location=True)]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+        await q.message.reply_text("📍 Нажмите кнопку ниже, чтобы отправить текущую геолокацию", reply_markup=kb)
+        return
+
+    if q.data == "settings_radius":
+        context.user_data["awaiting_radius"] = True
+        await q.message.reply_text("🛣 Введите радиус поиска в км\n\nНапример: 100")
+        return
+
+    if q.data == "settings_profit":
+        fake_update = Update(update.update_id, message=q.message)
+        return await nearby_profit(fake_update, context)
+
+    if q.data == "settings_nearby":
+        fake_update = Update(update.update_id, message=q.message)
+        return await nearby(fake_update, context)
+
+
+async def truck_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("💰 Ставка ₽/км", callback_data="settings_rate")],
+        [InlineKeyboardButton("📍 Обновить гео", callback_data="settings_geo")],
+        [InlineKeyboardButton("🛣 Радиус поиска", callback_data="settings_radius")],
+        [InlineKeyboardButton("🟢 Только выгодные", callback_data="settings_profit")],
+        [InlineKeyboardButton("📍 Грузы рядом", callback_data="settings_nearby")]
+    ])
+
+    await update.message.reply_text(
+        "⚙️ Настройки машины",
+        reply_markup=kb
+    )
+
+
+async def setrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if not context.args:
+        await update.message.reply_text("Используй: /setrate 35")
+        return
+
+    try:
+        rate = float(context.args[0].replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("❌ Введите число, например: /setrate 35")
+        return
+
+    row = await DB.fetchrow("""
+        UPDATE trucks
+        SET min_rate_per_km=$1
+        WHERE driver_id=$2
+        RETURNING id
+    """, rate, user_id)
+
+    if not row:
+        await update.message.reply_text("🚚 Сначала добавьте машину через кнопку 🚚 Машина")
+        return
+
+    await update.message.reply_text(
+        f"✅ Минимальная ставка сохранена: {rate} ₽/км"
+    )
+
+
+
+
+async def check_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.args = ["500"]
+    return await nearby_profit(update, context)
+
+
+async def nearby_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        context.args = ["500"]
+
+    radius = context.args[0]
+
+    url = f"http://localhost:5000/api/nearby?telegram_id={update.effective_user.id}&radius={radius}&profitability=profitable"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            data = await resp.json()
+
+    if not data.get("items"):
+        await update.message.reply_text(
+            "📭 Выгодных грузов не найдено"
+        )
+        return
+
+    for r in data["items"][:20]:
+        await update.message.reply_text(
+            f"🟢 Выгодный груз #{r['id']}\n"
+            f"🚩 {r['from_city']} → {r['to_city']}\n"
+            f"💰 {r['price_amount']} RUB\n"
+            f"📍 {r['distance_km']} км до загрузки\n"
+            f"💵 {r['rate_per_km']} ₽/км\n"
+            f"📈 +{r['profit_delta']} ₽/км к вашей минималке\n"
+            f"📝 {r['description'] or '-'}"
+        )
+
+
 async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
-    radius = 50
+    radius = None
 
     if context.args:
         try:
@@ -4194,16 +4349,26 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     truck = await DB.fetchrow("""
-        SELECT latitude, longitude
+        SELECT latitude, longitude, min_rate_per_km, search_radius_km
         FROM trucks
         WHERE driver_id=$1
         ORDER BY id DESC
         LIMIT 1
     """, user_id)
 
+    if radius is None:
+        radius = int(truck["search_radius_km"] or 50)
+
     if not truck or not truck["latitude"] or not truck["longitude"]:
+        kb = ReplyKeyboardMarkup(
+            [[KeyboardButton("📍 Отправить геолокацию", request_location=True)]],
+            resize_keyboard=True,
+            one_time_keyboard=True
+        )
+
         await update.message.reply_text(
-            "📍 Сначала отправьте геолокацию через /location LAT LON"
+            "📍 Сначала отправьте геолокацию",
+            reply_markup=kb
         )
         return
 
@@ -4214,6 +4379,8 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
             to_city,
             description,
             price_amount,
+            distance_km,
+            rate_per_km,
             load_latitude,
             load_longitude
         FROM cargo
@@ -4246,11 +4413,23 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     for dist, r in found[:20]:
+        rate = r["rate_per_km"]
+        min_rate = truck["min_rate_per_km"]
+
+        econ = "⚪ Рентабельность: нет данных"
+        if rate and min_rate:
+            delta = round(float(rate) - float(min_rate), 2)
+            if delta >= 0:
+                econ = f"🟢 Выгодно: {rate} ₽/км (+{delta} ₽/км)"
+            else:
+                econ = f"🔴 Ниже минималки: {rate} ₽/км ({delta} ₽/км)"
+
         await update.message.reply_text(
             f"📦 Груз #{r['id']}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
             f"💰 {format_price(r['price_amount'])} RUB\n"
             f"📍 {dist} км до загрузки\n"
+            f"{econ}\n"
             f"📝 {r['description'] or '-'}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
@@ -4340,9 +4519,13 @@ async def location_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📍 Геолокация сохранена\n\n"
         f"🚚 Машина #{truck['id']}\n"
-        f"Широта: {lat}\n"
-        f"Долгота: {lon}"
+        f"Широта: {round(lat, 4)}\n"
+        f"Долгота: {round(lon, 4)}\n\n"
+        f"Сейчас покажу грузы рядом 👇"
     )
+
+    context.args = ["50"]
+    await nearby(update, context)
 
 
 async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4385,14 +4568,105 @@ async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+
+
+async def rate_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("awaiting_radius"):
+        context.user_data["awaiting_radius"] = False
+
+        text = update.message.text.strip()
+
+        try:
+            radius = int(float(text.replace(",", ".")))
+        except ValueError:
+            await update.message.reply_text("❌ Введите число, например: 100")
+            context.user_data["awaiting_radius"] = True
+            return
+
+        user_id = await ensure_user(update.effective_user)
+
+        row = await DB.fetchrow("""
+            UPDATE trucks
+            SET search_radius_km=$1
+            WHERE driver_id=$2
+            RETURNING id
+        """, radius, user_id)
+
+        if not row:
+            await update.message.reply_text("🚚 Сначала добавьте машину через кнопку 🚚 Машина")
+            return
+
+        await update.message.reply_text(f"✅ Радиус поиска сохранён: {radius} км")
+        return
+
+    if not context.user_data.get("awaiting_rate"):
+        return
+
+    text = update.message.text.strip()
+    context.user_data["awaiting_rate"] = False
+
+    try:
+        rate = float(text.replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("❌ Введите число, например: 35")
+        context.user_data["awaiting_rate"] = True
+        return
+
+    user_id = await ensure_user(update.effective_user)
+
+    row = await DB.fetchrow("""
+        UPDATE trucks
+        SET min_rate_per_km=$1
+        WHERE driver_id=$2
+        RETURNING id
+    """, rate, user_id)
+
+    if not row:
+        await update.message.reply_text("🚚 Сначала добавьте машину через кнопку 🚚 Машина")
+        return
+
+    await update.message.reply_text(f"✅ Минимальная ставка сохранена: {rate} ₽/км")
+
+
 async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+
+    if context.user_data.get("awaiting_rate"):
+        context.user_data["awaiting_rate"] = False
+
+        try:
+            rate = float(text.replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Введите число, например: 35")
+            context.user_data["awaiting_rate"] = True
+            return
+
+        user_id = await ensure_user(update.effective_user)
+
+        row = await DB.fetchrow("""
+            UPDATE trucks
+            SET min_rate_per_km=$1
+            WHERE driver_id=$2
+            RETURNING id
+        """, rate, user_id)
+
+        if not row:
+            await update.message.reply_text("🚚 Сначала добавьте машину через кнопку 🚚 Машина")
+            return
+
+        await update.message.reply_text(f"✅ Минимальная ставка сохранена: {rate} ₽/км")
+        return
 
     if text == "📦 Грузы":
         return await cargo(update, context)
     if text == "📍 Рядом":
         context.args = ["50"]
         return await nearby(update, context)
+    if text == "🟢 Выгодные":
+        context.args = ["500"]
+        return await nearby_profit(update, context)
+    if text == "⚙️ Настройки":
+        return await truck_settings(update, context)
     if text == "➕ Груз":
         await update.message.reply_text("Чтобы создать груз, нажмите: /newcargo")
         return
@@ -4466,7 +4740,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [
             InlineKeyboardButton("🚚 Моя машина", callback_data="menu_truck"),
-            InlineKeyboardButton("🔍 Найти машину", callback_data="menu_findtruck"),
+            InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby"),
         ],
         [
             InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals"),
@@ -4507,6 +4781,67 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await responses_list(fake_update, context)
     if q.data == "menu_mysubs":
         return await mysubs(fake_update, context)
+    if q.data == "menu_nearby":
+        user_id = await ensure_user(q.from_user)
+
+        truck = await DB.fetchrow("""
+            SELECT latitude, longitude, search_radius_km
+            FROM trucks
+            WHERE driver_id=$1
+            ORDER BY id DESC
+            LIMIT 1
+        """, user_id)
+
+        if not truck or not truck["latitude"] or not truck["longitude"]:
+            kb = ReplyKeyboardMarkup(
+                [[KeyboardButton("📍 Отправить геолокацию", request_location=True)]],
+                resize_keyboard=True,
+                one_time_keyboard=True
+            )
+
+            await q.message.reply_text(
+                "📍 Сначала отправьте геолокацию",
+                reply_markup=kb
+            )
+            return
+
+        if radius is None:
+            radius = int(truck["search_radius_km"] or 50)
+
+        rows = await DB.fetch("""
+            SELECT id, from_city, to_city, description, price_amount, load_latitude, load_longitude
+            FROM cargo
+            WHERE status='open'
+              AND load_latitude IS NOT NULL
+              AND load_longitude IS NOT NULL
+            ORDER BY id DESC
+            LIMIT 100
+        """)
+
+        found = []
+        for r in rows:
+            dist = distance_km(truck["latitude"], truck["longitude"], r["load_latitude"], r["load_longitude"])
+            if dist is not None and dist <= 50:
+                found.append((dist, r))
+
+        found.sort(key=lambda x: x[0])
+
+        if not found:
+            await q.message.reply_text("📭 Грузов рядом 50 км не найдено")
+            return
+
+        for dist, r in found[:20]:
+            await q.message.reply_text(
+                f"📦 Груз #{r['id']}\n"
+                f"🚩 {r['from_city']} → {r['to_city']}\n"
+                f"💰 {format_price(r['price_amount'])} RUB\n"
+                f"📍 {dist} км до загрузки\n"
+                f"📝 {r['description'] or '-'}",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
+                ])
+            )
+        return
     if q.data == "menu_profile":
         return await profile(fake_update, context)
     if q.data == "menu_plans":
@@ -4844,6 +5179,8 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📍 Рядом|🟢 Выгодные|⚙️ Настройки|➕ Груз|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cargo", cargo))
     app.add_handler(CommandHandler("find", find_cargo))
@@ -4896,7 +5233,6 @@ def main():
     app.add_handler(CommandHandler("replydeal", replydeal))
     app.add_handler(CommandHandler("searchdeal", searchdeal))
     app.add_handler(CommandHandler("deals", deals_list))
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📍 Рядом|➕ Груз|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text))
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("plans", plans))
@@ -4904,6 +5240,10 @@ def main():
     app.add_handler(CommandHandler("location", location_cmd))
     app.add_handler(CommandHandler("cargogeo", cargogeo))
     app.add_handler(CommandHandler("nearby", nearby))
+    app.add_handler(CommandHandler("nearby_profit", nearby_profit))
+    app.add_handler(CommandHandler("check_profit", check_profit))
+    app.add_handler(CommandHandler("setrate", setrate))
+    app.add_handler(CallbackQueryHandler(settings_buttons, pattern="^settings_"))
     app.add_handler(CommandHandler("subscribe", subscribe))
     app.add_handler(CommandHandler("sub", subscribe))
     app.add_handler(CommandHandler("mysubs", mysubs))
