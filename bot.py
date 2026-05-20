@@ -4255,6 +4255,24 @@ async def settings_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         fake_update = Update(update.update_id, message=q.message)
         return await nearby(fake_update, context)
 
+    if q.data == "settings_notify_toggle":
+        user_id = await ensure_user(q.from_user)
+
+        row = await DB.fetchrow("""
+            UPDATE trucks
+            SET notifications_enabled = NOT COALESCE(notifications_enabled, true)
+            WHERE driver_id=$1
+            RETURNING notifications_enabled
+        """, user_id)
+
+        if not row:
+            await q.message.reply_text("🚚 Сначала добавьте машину через кнопку 🚚 Машина")
+            return
+
+        status = "включены" if row["notifications_enabled"] else "выключены"
+        await q.message.reply_text(f"🔔 Уведомления {status}")
+        return
+
 
 async def truck_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([
@@ -4262,7 +4280,8 @@ async def truck_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📍 Обновить гео", callback_data="settings_geo")],
         [InlineKeyboardButton("🛣 Радиус поиска", callback_data="settings_radius")],
         [InlineKeyboardButton("🟢 Только выгодные", callback_data="settings_profit")],
-        [InlineKeyboardButton("📍 Грузы рядом", callback_data="settings_nearby")]
+        [InlineKeyboardButton("📍 Грузы рядом", callback_data="settings_nearby")],
+        [InlineKeyboardButton("🔔 Уведомления ON/OFF", callback_data="settings_notify_toggle")]
     ])
 
     await update.message.reply_text(

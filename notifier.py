@@ -55,6 +55,7 @@ async def main():
             FROM trucks t
             JOIN users u ON u.id=t.driver_id
             WHERE t.status='active'
+              AND t.notifications_enabled=true
               AND t.latitude IS NOT NULL
               AND t.longitude IS NOT NULL
         """)
