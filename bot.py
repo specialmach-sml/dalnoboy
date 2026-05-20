@@ -4066,13 +4066,21 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data["price_amount"]
     )
 
+    context.user_data["awaiting_cargo_geo"] = row["id"]
+
+    kb = ReplyKeyboardMarkup(
+        [[KeyboardButton("📍 Отправить гео загрузки", request_location=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
     await update.message.reply_text(
         f"✅ Груз создан #{row['id']}\n"
         f"📍 {data['from_city']} → {data['to_city']}\n"
         f"📝 {data['description']}\n"
         f"💰 Цена: {data['price_amount']} RUB\n\n"
-        f"📌 Чтобы груз попал в поиск рядом, добавьте координаты загрузки:\n"
-        f"/cargogeo {row['id']} 55.7558 37.6173"
+        f"📌 Отправьте геолокацию места загрузки кнопкой ниже.",
+        reply_markup=kb
     )
 
     subs = await DB.fetch("""
@@ -4574,6 +4582,34 @@ async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     lat = update.message.location.latitude
     lon = update.message.location.longitude
 
+    cargo_id = context.user_data.pop("awaiting_cargo_geo", None)
+
+    if cargo_id:
+        cargo = await DB.fetchrow("""
+            SELECT id, created_by
+            FROM cargo
+            WHERE id=$1
+        """, cargo_id)
+
+        if not cargo or cargo["created_by"] != user_id:
+            await update.message.reply_text("❌ Груз не найден или не ваш")
+            return
+
+        await DB.execute("""
+            UPDATE cargo
+            SET load_latitude=$1,
+                load_longitude=$2
+            WHERE id=$3
+        """, lat, lon, cargo_id)
+
+        await update.message.reply_text(
+            f"✅ Геолокация загрузки сохранена для груза #{cargo_id}\n"
+            f"Широта: {round(lat, 4)}\n"
+            f"Долгота: {round(lon, 4)}",
+            reply_markup=main_reply_keyboard()
+        )
+        return
+
     truck = await DB.fetchrow("""
         SELECT id
         FROM trucks
@@ -4600,12 +4636,10 @@ async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"📍 Геолокация сохранена\n\n"
         f"🚚 Машина #{truck['id']}\n"
-        f"Широта: {lat}\n"
-        f"Долгота: {lon}",
+        f"Широта: {round(lat, 4)}\n"
+        f"Долгота: {round(lon, 4)}",
         reply_markup=main_reply_keyboard()
     )
-
-
 
 
 async def rate_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
