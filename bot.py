@@ -42,6 +42,7 @@ CARGO_FROM = 1
 CARGO_TO = 2
 CARGO_DESC = 3
 CARGO_PRICE = 4
+CARGO_DISTANCE = 5
 
 TRUCK_CITY = 20
 TRUCK_BODY = 21
@@ -4028,6 +4029,24 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["newcargo"]["price_amount"] = price_amount
 
+    await update.message.reply_text(
+        "📏 Введите расстояние маршрута в км\n\nНапример: 850"
+    )
+
+    return CARGO_DISTANCE
+
+
+async def newcargo_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    raw_distance = update.message.text.strip().replace(",", ".")
+
+    try:
+        distance_km = float(raw_distance)
+    except ValueError:
+        await update.message.reply_text("❌ Введите расстояние числом, например: 850")
+        return CARGO_DISTANCE
+
+    context.user_data["newcargo"]["distance_km"] = distance_km
+
     tg_user = update.effective_user
     user_id = await ensure_user(tg_user)
 
@@ -4054,16 +4073,20 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
             description,
             price_amount,
             price_currency,
+            distance_km,
+            rate_per_km,
             status
         )
-        VALUES ($1,$2,$3,$4,$5,'RUB','open')
+        VALUES ($1,$2,$3,$4,$5,'RUB',$6,$7,'open')
         RETURNING id
     """,
         user_id,
         data["from_city"],
         data["to_city"],
         data["description"],
-        data["price_amount"]
+        data["price_amount"],
+        data["distance_km"],
+        round(data["price_amount"] / data["distance_km"], 2) if data["distance_km"] else None
     )
 
     context.user_data["awaiting_cargo_geo"] = row["id"]
@@ -4078,7 +4101,9 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Груз создан #{row['id']}\n"
         f"📍 {data['from_city']} → {data['to_city']}\n"
         f"📝 {data['description']}\n"
-        f"💰 Цена: {data['price_amount']} RUB\n\n"
+        f"💰 Цена: {data['price_amount']} RUB\n"
+        f"📏 Расстояние: {data['distance_km']} км\n"
+        f"💵 Ставка: {round(data['price_amount'] / data['distance_km'], 2)} ₽/км\n\n"
         f"📌 Отправьте геолокацию места загрузки кнопкой ниже.",
         reply_markup=kb
     )
@@ -5168,6 +5193,7 @@ def main():
             CARGO_TO: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_to)],
             CARGO_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_desc)],
             CARGO_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_price)],
+            CARGO_DISTANCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_distance)],
         },
         fallbacks=[CommandHandler("cancel", newcargo_cancel)],
     )
