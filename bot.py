@@ -4853,68 +4853,9 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q.data == "menu_mysubs":
         return await mysubs(fake_update, context)
     if q.data == "menu_nearby":
-        user_id = await ensure_user(q.from_user)
+        fake_update = Update(update.update_id, message=q.message)
+        return await nearby(fake_update, context)
 
-        truck = await DB.fetchrow("""
-            SELECT latitude, longitude, search_radius_km
-            FROM trucks
-            WHERE driver_id=$1
-            ORDER BY id DESC
-            LIMIT 1
-        """, user_id)
-
-        if not truck or not truck["latitude"] or not truck["longitude"]:
-            kb = ReplyKeyboardMarkup(
-                [[KeyboardButton("📍 Отправить геолокацию", request_location=True)]],
-                resize_keyboard=True,
-                one_time_keyboard=True
-            )
-
-            await q.message.reply_text(
-                "📍 Сначала отправьте геолокацию",
-                reply_markup=kb
-            )
-            return
-
-        if radius is None:
-            radius = int(truck["search_radius_km"] or 50)
-
-        rows = await DB.fetch("""
-            SELECT id, from_city, to_city, description, price_amount, load_latitude, load_longitude
-            FROM cargo
-            WHERE status='open'
-              AND load_latitude IS NOT NULL
-              AND load_longitude IS NOT NULL
-            ORDER BY id DESC
-            LIMIT 100
-        """)
-
-        found = []
-        for r in rows:
-            dist = distance_km(truck["latitude"], truck["longitude"], r["load_latitude"], r["load_longitude"])
-            if dist is not None and dist <= 50:
-                found.append((dist, r))
-
-        found.sort(key=lambda x: x[0])
-
-        if not found:
-            await q.message.reply_text("📭 Грузов рядом 50 км не найдено")
-            return
-
-        for dist, r in found[:20]:
-            await q.message.reply_text(
-                f"📦 Груз #{r['id']}\n"
-                f"🚩 {r['from_city']} → {r['to_city']}\n"
-                f"💰 {format_price(r['price_amount'])} RUB\n"
-                f"📍 {dist} км до загрузки\n"
-                f"📝 {r['description'] or '-'}",
-                reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
-                ])
-            )
-        return
-    if q.data == "menu_profile":
-        return await profile(fake_update, context)
     if q.data == "menu_plans":
         return await plans(fake_update, context)
 
