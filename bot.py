@@ -4070,7 +4070,9 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Груз создан #{row['id']}\n"
         f"📍 {data['from_city']} → {data['to_city']}\n"
         f"📝 {data['description']}\n"
-        f"💰 Цена: {data['price_amount']} RUB"
+        f"💰 Цена: {data['price_amount']} RUB\n\n"
+        f"📌 Чтобы груз попал в поиск рядом, добавьте координаты загрузки:\n"
+        f"/cargogeo {row['id']} 55.7558 37.6173"
     )
 
     subs = await DB.fetch("""
