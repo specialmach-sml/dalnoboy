@@ -4765,7 +4765,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if text == "⚙️ Настройки":
         return await truck_settings(update, context)
     if text == "➕ Груз":
-        return await newcargo_start(update, context)
+        return
     if text == "🚚 Машина":
         return await mytruck(update, context)
     if text == "🤝 Сделки":
@@ -5187,7 +5187,10 @@ def main():
     app = Application.builder().token(TOKEN).post_init(post_init).build()
 
     newcargo_handler = ConversationHandler(
-        entry_points=[CommandHandler("newcargo", newcargo_start)],
+        entry_points=[
+            CommandHandler("newcargo", newcargo_start),
+            MessageHandler(filters.Regex("^➕ Груз$"), newcargo_start),
+        ],
         states={
             CARGO_FROM: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_from)],
             CARGO_TO: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_to)],
