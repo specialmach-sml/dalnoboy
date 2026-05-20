@@ -4308,10 +4308,25 @@ async def check_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def nearby_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.args:
-        context.args = ["500"]
+    user_id = await ensure_user(update.effective_user)
 
-    radius = context.args[0]
+    radius = None
+    if context.args:
+        try:
+            radius = int(context.args[0])
+        except:
+            pass
+
+    truck = await DB.fetchrow("""
+        SELECT search_radius_km
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    if radius is None:
+        radius = int(truck["search_radius_km"] or 50) if truck else 50
 
     url = f"http://localhost:5000/api/nearby?telegram_id={update.effective_user.id}&radius={radius}&profitability=profitable"
 
@@ -4320,20 +4335,21 @@ async def nearby_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             data = await resp.json()
 
     if not data.get("items"):
-        await update.message.reply_text(
-            "📭 Выгодных грузов не найдено"
-        )
+        await update.message.reply_text(f"📭 Выгодных грузов рядом ({radius} км) не найдено")
         return
 
     for r in data["items"][:20]:
         await update.message.reply_text(
             f"🟢 Выгодный груз #{r['id']}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
-            f"💰 {r['price_amount']} RUB\n"
+            f"💰 {format_price(r['price_amount'])} RUB\n"
             f"📍 {r['distance_km']} км до загрузки\n"
             f"💵 {r['rate_per_km']} ₽/км\n"
             f"📈 +{r['profit_delta']} ₽/км к вашей минималке\n"
-            f"📝 {r['description'] or '-'}"
+            f"📝 {r['description'] or '-'}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
+            ])
         )
 
 
@@ -4564,7 +4580,8 @@ async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📍 Геолокация сохранена\n\n"
         f"🚚 Машина #{truck['id']}\n"
         f"Широта: {lat}\n"
-        f"Долгота: {lon}"
+        f"Долгота: {lon}",
+        reply_markup=main_reply_keyboard()
     )
 
 
