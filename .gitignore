@@ -4,3 +4,4 @@ __pycache__/
 .env
 backups/
 *.tar.gz
+server/node_modules/
