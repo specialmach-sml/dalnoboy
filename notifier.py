@@ -78,8 +78,11 @@ async def main():
                 rate = cargo["rate_per_km"]
                 min_rate = truck["min_rate_per_km"]
 
-                if rate and min_rate and float(rate) < float(min_rate):
-                    continue
+                profitable_only = truck["notify_profitable_only"]
+
+                if profitable_only:
+                    if rate and min_rate and float(rate) < float(min_rate):
+                        continue
 
                 exists = await db.fetchrow("""
                     SELECT id

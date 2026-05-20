@@ -4308,6 +4308,24 @@ async def settings_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text(f"🔔 Уведомления {status}")
         return
 
+    if q.data == "settings_profitable_notify_toggle":
+        user_id = await ensure_user(q.from_user)
+
+        row = await DB.fetchrow("""
+            UPDATE trucks
+            SET notify_profitable_only = NOT COALESCE(notify_profitable_only, true)
+            WHERE driver_id=$1
+            RETURNING notify_profitable_only
+        """, user_id)
+
+        if not row:
+            await q.message.reply_text("🚚 Сначала добавьте машину через кнопку 🚚 Машина")
+            return
+
+        status = "только выгодные" if row["notify_profitable_only"] else "все рядом"
+        await q.message.reply_text(f"🟢 Режим уведомлений: {status}")
+        return
+
 
 async def truck_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([
@@ -4316,7 +4334,8 @@ async def truck_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🛣 Радиус поиска", callback_data="settings_radius")],
         [InlineKeyboardButton("🟢 Только выгодные", callback_data="settings_profit")],
         [InlineKeyboardButton("📍 Грузы рядом", callback_data="settings_nearby")],
-        [InlineKeyboardButton("🔔 Уведомления ON/OFF", callback_data="settings_notify_toggle")]
+        [InlineKeyboardButton("🔔 Уведомления ON/OFF", callback_data="settings_notify_toggle")],
+        [InlineKeyboardButton("🟢 Уведомлять только выгодные ON/OFF", callback_data="settings_profitable_notify_toggle")]
     ])
 
     await update.message.reply_text(
