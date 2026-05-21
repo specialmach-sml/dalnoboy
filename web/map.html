@@ -35,6 +35,7 @@
   <small id="cargoCount">Загрузка грузов...</small><br>
   <small id="truckCount">Загрузка машин...</small><br>
   <small>🟢 GEO до 2ч · 🟡 GEO до 24ч</small><br>
+  <small>🟢 груз ≥100 ₽/км · 🟡 есть ставка · 🔴 без ставки</small><br>
   <button onclick="loadCargo('')" class="btn">📦 Все</button>
   <button onclick="toggleTrucks()" class="btn">🚚 Машины ON/OFF</button>
   <button onclick="loadCargo('?profitability=profitable')" class="btn">🟢 Выгодные</button>
@@ -153,12 +154,23 @@ map.on('click', function(e) {
   }
 
 });
-const cargoIcon = L.divIcon({
-  html: '<div style="font-size:32px">📦</div>',
-  className: '',
-  iconSize: [32, 32],
-  iconAnchor: [16, 16]
-});
+function cargoIconByRate(rate) {
+  const r = Number(rate || 0);
+  let emoji = '🔴📦';
+
+  if (r >= 100) {
+    emoji = '🟢📦';
+  } else if (r > 0) {
+    emoji = '🟡📦';
+  }
+
+  return L.divIcon({
+    html: '<div style="font-size:28px">' + emoji + '</div>',
+    className: '',
+    iconSize: [40, 32],
+    iconAnchor: [20, 16]
+  });
+}
 
 function truckIconByFreshness(updatedAt) {
   const updated = updatedAt ? new Date(updatedAt) : null;
@@ -204,7 +216,7 @@ function loadCargo(query) {
       const lon = parseFloat(c.load_longitude);
       points.push([lat, lon]);
 
-      const marker = L.marker([lat, lon], { icon: cargoIcon })
+      const marker = L.marker([lat, lon], { icon: cargoIconByRate(c.rate_per_km) })
         .addTo(map)
         .bindPopup(
           '<b>📦 Груз #' + c.id + '</b><br>' +
