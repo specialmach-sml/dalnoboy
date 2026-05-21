@@ -63,7 +63,7 @@ def main_reply_keyboard():
             ["📍 Рядом", "🟢 Выгодные"],
             ["⚙️ Настройки"],
             ["➕ Груз", "🚚 Машина"],
-            ["🤝 Сделки", "👤 Профиль"],
+            ["📨 Отклики", "👤 Профиль"],
             ["🏠 Меню"]
         ],
         resize_keyboard=True,
@@ -4908,8 +4908,17 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             return await truck_start(update, context)
 
         return await mytruck(update, context)
-    if text == "🤝 Сделки":
-        return await deals_list(update, context)
+    if text == "📨 Отклики":
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📨 Мои отклики", callback_data="menu_myresponses")],
+            [InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals")]
+        ])
+
+        await update.message.reply_text(
+            "📨 Центр откликов",
+            reply_markup=kb
+        )
+        return
     if text == "👤 Профиль":
         return await profile(update, context)
     if text == "🏠 Меню":
@@ -5363,7 +5372,7 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|⚙️ Настройки|➕ Груз|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|🏠 Меню)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cargo", cargo))
