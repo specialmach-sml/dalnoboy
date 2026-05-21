@@ -40,6 +40,7 @@
   <button onclick="toggleTrucks()" class="btn">🚚 Машины ON/OFF</button>
   <button onclick="loadCargo('?profitability=profitable')" class="btn">🟢 Выгодные</button>
   <button onclick="loadCargo('?min_rate=100')" class="btn">💵 от 100 ₽/км</button>
+  <button onclick="loadAvailableTrucks()" class="btn">🚚 Догруз</button>
   <br><br>
   <input id="cityFilter" placeholder="Город" onkeydown="if(event.key==='Enter'){filterCity()}" style="width:190px;padding:8px;border-radius:8px;border:1px solid #ccc;">
   <button onclick="filterCity()" class="btn">🔎</button>
@@ -226,7 +227,8 @@ function loadCargo(query) {
           '📏 ' + (c.distance_km || '-') + ' км<br>' +
           '💵 ' + (c.rate_per_km || '-') + ' ₽/км<br>' +
           '📝 ' + (c.description || '') + '<br>' +
-          '<a class="btn" href="https://t.me/DalnoboyBrosBot" target="_blank">🚛 Откликнуться</a><br>' +
+          '<button class="btn" onclick="loadAvailableTrucks(' + c.id + ')">🔎 Попутные машины</button><br>' +
+          '<a class="btn" href="https://t.me/dalnoboybros_bot" target="_blank">🚛 Откликнуться</a><br>' +
           '<a class="btn" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lon + '" target="_blank">🧭 Маршрут</a>'
         );
 
@@ -258,6 +260,41 @@ function loadCargo(query) {
 
 loadCargo('');
 
+function loadAvailableTrucks(cargoId) {
+  const cargoList = document.getElementById('cargoList');
+  cargoList.innerHTML = 'Загрузка попутных машин...';
+
+  const url = cargoId ? '/api/cargo/' + cargoId + '/available-trucks' : '/api/trucks/available';
+
+  fetch(url)
+    .then(r => r.json())
+    .then(data => {
+      document.getElementById('cargoCount').innerText = 'Попутных машин: ' + data.count;
+      cargoList.innerHTML = '';
+
+      data.items.forEach(t => {
+        const lat = parseFloat(t.latitude);
+        const lon = parseFloat(t.longitude);
+
+        const card = document.createElement('div');
+        card.className = 'cargo-card';
+        card.innerHTML =
+          '<b>🚚 Машина #' + t.id + '</b><br>' +
+          '👤 ' + (t.full_name || 'Водитель') + '<br>' +
+          '🚩 ' + (t.route_from || '-') + ' → ' + (t.route_to || '-') + '<br>' +
+          '📦 Свободно: ' + (t.available_tons || '-') + ' т / ' + (t.available_volume_m3 || '-') + ' м³<br>' +
+          '🔥 Совпадение: ' + (t.match_score || '-') + '%<br>' +
+          '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4);
+
+        card.onclick = () => {
+          map.setView([lat, lon], 10);
+        };
+
+        cargoList.appendChild(card);
+      });
+    });
+}
+
 function toggleTrucks() {
   trucksVisible = !trucksVisible;
 
@@ -279,14 +316,30 @@ fetch('/api/trucks/active')
       const lat = parseFloat(t.latitude);
       const lon = parseFloat(t.longitude);
 
+      let displayLat = lat;
+      let displayLon = lon;
+
+      const sameCargoPoint = cargoMarkers.some(m => {
+        const p = m.getLatLng();
+        return Math.abs(p.lat - lat) < 0.0001 && Math.abs(p.lng - lon) < 0.0001;
+      });
+
+      if (sameCargoPoint) {
+        displayLon = lon + 0.003;
+      }
+
       const updatedAt = t.location_updated_at || null;
       const updatedText = updatedAt ? new Date(updatedAt).toLocaleString() : '-';
 
-      const truckMarker = L.marker([lat, lon], { icon: truckIconByFreshness(updatedAt) })
+      const contactLine =
+        '💬 <a class="btn" href="https://t.me/dalnoboybros_bot?start=user_' + t.driver_id + '" target="_blank">Написать</a><br>';
+
+      const truckMarker = L.marker([displayLat, displayLon], { icon: truckIconByFreshness(updatedAt), zIndexOffset: 1000 })
         .addTo(map)
         .bindPopup(
           '<b>🚚 Машина #' + t.id + '</b><br>' +
           '👤 ' + (t.full_name || 'Водитель') + '<br>' +
+          contactLine +
           '🕒 GEO: ' + updatedText + '<br>' +
           '📍 ' + lat + ', ' + lon
         );

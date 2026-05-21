@@ -114,17 +114,18 @@ async def ensure_user(tg_user):
     if row:
         await DB.execute("""
             UPDATE users
-            SET full_name=$1
-            WHERE telegram_id=$2
-        """, tg_user.full_name, tg_user.id)
+            SET full_name=$1,
+                telegram_username=$2
+            WHERE telegram_id=$3
+        """, tg_user.full_name, tg_user.username, tg_user.id)
 
         return row["id"]
 
     new_user = await DB.fetchrow("""
-        INSERT INTO users (telegram_id, full_name)
-        VALUES ($1, $2)
+        INSERT INTO users (telegram_id, full_name, telegram_username)
+        VALUES ($1, $2, $3)
         RETURNING id
-    """, tg_user.id, tg_user.full_name)
+    """, tg_user.id, tg_user.full_name, tg_user.username)
 
     return new_user["id"]
 
@@ -1055,6 +1056,60 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ensure_user(update.effective_user)
+
+    if context.args and context.args[0].startswith("user_"):
+        try:
+            target_user_id = int(context.args[0].replace("user_", ""))
+        except ValueError:
+            target_user_id = None
+
+        if target_user_id:
+            user = await DB.fetchrow("""
+                SELECT id, full_name, verified, plan_type
+                FROM users
+                WHERE id=$1
+            """, target_user_id)
+
+            truck = await DB.fetchrow("""
+                SELECT id, current_city, body_type, capacity_tons, volume_m3, status, location_updated_at
+                FROM trucks
+                WHERE driver_id=$1
+                ORDER BY id DESC
+                LIMIT 1
+            """, target_user_id)
+
+            if not user:
+                await update.message.reply_text("❌ Пользователь не найден")
+                return
+
+            text = (
+                f"👤 Пользователь #{user['id']}\n"
+                f"Имя: {user['full_name'] or '-'} {'✅' if user['verified'] else ''}\n"
+                f"Тариф: {user['plan_type'] or 'free'}\n\n"
+            )
+
+            if truck:
+                text += (
+                    f"🚚 Машина #{truck['id']}\n"
+                    f"📍 Город: {truck['current_city'] or '-'}\n"
+                    f"📦 Кузов: {truck['body_type'] or '-'}\n"
+                    f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\n"
+                    f"📦 Объём: {truck['volume_m3'] or '-'} м³\n"
+                    f"📊 Статус: {human_status(truck['status'])}\n"
+                    f"🕒 GEO: {truck['location_updated_at'] or '-'}"
+                )
+            else:
+                text += "🚚 Машина не добавлена"
+
+            await update.message.reply_text(
+                text,
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals")],
+                    [InlineKeyboardButton("📦 Грузы", callback_data="menu_cargo")]
+                ])
+            )
+            return
+
     await update.message.reply_text(
         "🚛 Добро пожаловать в Dalnoboy Bros!",
         reply_markup=main_reply_keyboard()
@@ -2935,7 +2990,13 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, cargo_id, user_id)
 
     if existing:
-        await q.message.reply_text("⚠️ Уже откликались")
+        await q.edit_message_reply_markup(
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("📨 Мой отклик / статус", callback_data="menu_myresponses")],
+                [InlineKeyboardButton("✅ Вы уже откликнулись", callback_data="menu_myresponses")],
+                [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{cargo_id}")]
+            ])
+        )
         return
 
     await DB.execute("""
@@ -2981,6 +3042,14 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         except Exception as e:
             logging.warning(f"Response notify failed: {e}")
+
+    await q.edit_message_reply_markup(
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📨 Мой отклик / статус", callback_data="menu_myresponses")],
+            [InlineKeyboardButton("✅ Вы откликнулись", callback_data="menu_myresponses")],
+            [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{cargo_id}")]
+        ])
+    )
 
     await q.message.reply_text("✅ Отклик отправлен")
 
@@ -3031,7 +3100,7 @@ async def replydeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=f"💬 Новое сообщение в сделке #{deal_id}\n\n{text}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("💬 Ответить", callback_data=f"deal_chat_{deal_id}")],
-                [InlineKeyboardButton("📖 История чата", callback_data=f"deal_chat_{deal_id}")]
+                [InlineKeyboardButton("📖 История чата", callback_data=f"deal_history_{deal_id}")]
             ])
         )
 
@@ -3320,7 +3389,7 @@ async def dealmsg(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=f"💬 Новое сообщение в сделке #{deal_id}\n\n{text}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("💬 Ответить", callback_data=f"deal_chat_{deal_id}")],
-                [InlineKeyboardButton("📖 История чата", callback_data=f"deal_chat_{deal_id}")]
+                [InlineKeyboardButton("📖 История чата", callback_data=f"deal_history_{deal_id}")]
             ])
         )
 
@@ -3729,6 +3798,18 @@ async def deal_write_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+
+
+async def deal_history_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    deal_id = int(q.data.split("_")[2])
+    fake_update = Update(update.update_id, message=q.message)
+    context.args = [str(deal_id)]
+
+    return await dealchat(fake_update, context)
+
 async def deal_chat_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -3808,7 +3889,7 @@ async def deal_chat_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text=f"💬 Новое сообщение в сделке #{deal_id}\n\n{text}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("💬 Ответить", callback_data=f"deal_chat_{deal_id}")],
-                [InlineKeyboardButton("📖 История чата", callback_data=f"deal_chat_{deal_id}")]
+                [InlineKeyboardButton("📖 История чата", callback_data=f"deal_history_{deal_id}")]
             ])
         )
 
@@ -5459,6 +5540,7 @@ def main():
     app.add_handler(CallbackQueryHandler(admin_dispute_buttons, pattern="^admin_(dealchat|notes|close_dispute)_"))
     app.add_handler(CallbackQueryHandler(deal_reason_help, pattern="^deal_reason_help_"))
     app.add_handler(CallbackQueryHandler(deal_write_help, pattern="^deal_write_help_"))
+    app.add_handler(CallbackQueryHandler(deal_history_button, pattern="^deal_history_"))
     app.add_handler(CallbackQueryHandler(deal_chat_button, pattern="^deal_chat_"))
     app.add_handler(CallbackQueryHandler(deal_action, pattern="^deal_"))
     app.add_handler(CallbackQueryHandler(review_action, pattern="^review_"))
