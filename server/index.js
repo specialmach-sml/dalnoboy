@@ -205,6 +205,31 @@ app.get("/api/trucks/active", async (req, res) => {
 
 app.get("/api/cargo/open", async (req, res) => {
   try {
+    const minRate = Number(req.query.min_rate || 0);
+    const city = (req.query.city || "").trim();
+    const profitability = req.query.profitability || "";
+
+    const params = [];
+    let where = `
+      WHERE status='open'
+        AND load_latitude IS NOT NULL
+        AND load_longitude IS NOT NULL
+    `;
+
+    if (minRate > 0) {
+      params.push(minRate);
+      where += ` AND COALESCE(rate_per_km, 0) >= $${params.length}`;
+    }
+
+    if (city) {
+      params.push(`%${city}%`);
+      where += ` AND (from_city ILIKE $${params.length} OR to_city ILIKE $${params.length})`;
+    }
+
+    if (profitability === "profitable") {
+      where += ` AND COALESCE(rate_per_km, 0) > 0`;
+    }
+
     const rows = await pool.query(`
       SELECT
         id,
@@ -218,16 +243,21 @@ app.get("/api/cargo/open", async (req, res) => {
         load_latitude,
         load_longitude
       FROM cargo
-      WHERE status='open'
-        AND load_latitude IS NOT NULL
-        AND load_longitude IS NOT NULL
-      ORDER BY id DESC
+      ${where}
+      ORDER BY
+        COALESCE(rate_per_km, 0) DESC,
+        id DESC
       LIMIT 500
-    `);
+    `, params);
 
     res.json({
       success: true,
       count: rows.rows.length,
+      filters: {
+        min_rate: minRate,
+        city,
+        profitability
+      },
       items: rows.rows
     });
   } catch (e) {
