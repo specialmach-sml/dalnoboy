@@ -41,8 +41,9 @@
   <button onclick="loadCargo('?profitability=profitable')" class="btn">🟢 Выгодные</button>
   <button onclick="loadCargo('?min_rate=100')" class="btn">💵 от 100 ₽/км</button>
   <br><br>
-  <input id="cityFilter" placeholder="Город" style="width:190px;padding:8px;border-radius:8px;border:1px solid #ccc;">
+  <input id="cityFilter" placeholder="Город" onkeydown="if(event.key==='Enter'){filterCity()}" style="width:190px;padding:8px;border-radius:8px;border:1px solid #ccc;">
   <button onclick="filterCity()" class="btn">🔎</button>
+  <button onclick="document.getElementById('cityFilter').value=''; loadCargo('')" class="btn">❌</button>
   <div id="cargoList">Загрузка...</div>
 </div>
 
