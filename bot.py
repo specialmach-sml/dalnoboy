@@ -59,8 +59,8 @@ TRUCK_COMMENT = 24
 def main_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
-            ["📦 Грузы", "📍 Рядом"],
-            ["🟢 Выгодные"],
+            ["📦 Грузы", "📋 Мои грузы"],
+            ["📍 Рядом", "🟢 Выгодные"],
             ["⚙️ Настройки"],
             ["➕ Груз", "🚚 Машина"],
             ["🤝 Сделки", "👤 Профиль"],
@@ -789,11 +789,7 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, user_id)
 
     if not truck:
-        await update.message.reply_text(
-            "🚚 У вас пока нет машины\n\n"
-            "Добавить: /truck"
-        )
-        return
+        return await truck_start(update, context)
 
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🔁 Обновить в поиске", callback_data=f"truck_refresh_{truck['id']}")],
@@ -1139,11 +1135,37 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"{distance_line}"
         )
 
-        kb = InlineKeyboardMarkup([
-            [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
-            [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")],
-            [InlineKeyboardButton("🚩 Жалоба", callback_data=f"report_{r['id']}")]
-        ])
+        existing_response = await DB.fetchrow("""
+            SELECT id, status
+            FROM responses
+            WHERE cargo_id=$1
+              AND driver_id=$2
+            ORDER BY id DESC
+            LIMIT 1
+        """, r["id"], user_id)
+
+        if existing_response:
+            response_status = existing_response["status"] or "sent"
+
+            if response_status == "accepted":
+                response_text = "🤝 Вас выбрали"
+
+            elif response_status == "rejected":
+                response_text = "❌ Отклонён"
+
+            else:
+                response_text = "✅ Вы откликнулись"
+
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📨 Мой отклик / статус", callback_data="menu_myresponses")],
+                [InlineKeyboardButton(response_text, callback_data="menu_myresponses")],
+                [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")]
+            ])
+        else:
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
+                [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")]
+            ])
 
         await update.message.reply_text(text, reply_markup=kb)
 
@@ -2492,8 +2514,7 @@ async def findprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for r in rows:
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
-            [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")],
-            [InlineKeyboardButton("🚩 Жалоба", callback_data=f"report_{r['id']}")]
+            [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")]
         ])
 
         await update.message.reply_text(
@@ -2878,8 +2899,7 @@ async def find_cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
-            [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")],
-            [InlineKeyboardButton("🚩 Жалоба", callback_data=f"report_{r['id']}")]
+            [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")]
         ])
 
         await update.message.reply_text(text, reply_markup=kb)
@@ -3307,6 +3327,41 @@ async def dealmsg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         f"💬 Сообщение отправлено в сделку #{deal_id}"
     )
+
+
+
+
+async def myresponses(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    rows = await DB.fetch("""
+        SELECT
+            r.id,
+            r.status,
+            c.id AS cargo_id,
+            c.from_city,
+            c.to_city,
+            c.price_amount,
+            c.price_currency
+        FROM responses r
+        JOIN cargo c ON c.id = r.cargo_id
+        WHERE r.driver_id=$1
+        ORDER BY r.id DESC
+        LIMIT 20
+    """, user_id)
+
+    if not rows:
+        await update.message.reply_text("📭 Вы ещё не откликались")
+        return
+
+    for r in rows:
+        await update.message.reply_text(
+            f"📨 Мой отклик #{r['id']}\n"
+            f"📦 Груз #{r['cargo_id']}\n"
+            f"🚩 {r['from_city']} → {r['to_city']}\n"
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
+            f"📊 Статус: {human_status(r['status'])}"
+        )
 
 
 async def responses_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4375,6 +4430,56 @@ async def setrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+
+
+async def push_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    context.args = ["500"]
+
+    url = f"http://localhost:5000/api/nearby?telegram_id={update.effective_user.id}&radius=500&profitability=profitable"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as resp:
+            data = await resp.json()
+
+    sent = 0
+
+    for r in data.get("items", []):
+        exists = await DB.fetchrow("""
+            SELECT id
+            FROM profit_notifications
+            WHERE user_id=$1 AND cargo_id=$2
+        """, user_id, int(r["id"]))
+
+        if exists:
+            continue
+
+        await update.message.reply_text(
+            f"🟢 Новый выгодный груз #{r['id']}\n"
+            f"🚩 {r['from_city']} → {r['to_city']}\n"
+            f"💰 {r['price_amount']} RUB\n"
+            f"💵 {r['rate_per_km']} ₽/км\n"
+            f"📈 +{r['profit_delta']} ₽/км к вашей минималке\n"
+            f"📍 {r['distance_km']} км до загрузки\n"
+            f"📝 {r['description'] or '-'}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
+            ])
+        )
+
+        await DB.execute("""
+            INSERT INTO profit_notifications (user_id, cargo_id)
+            VALUES ($1,$2)
+            ON CONFLICT (user_id, cargo_id) DO NOTHING
+        """, user_id, int(r["id"]))
+
+        sent += 1
+
+    if sent == 0:
+        await update.message.reply_text("📭 Новых выгодных грузов нет")
+
+
 async def check_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.args = ["500"]
     return await nearby_profit(update, context)
@@ -4775,6 +4880,9 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if text == "📦 Грузы":
         return await cargo(update, context)
+
+    if text == "📋 Мои грузы":
+        return await mycargo(update, context)
     if text == "📍 Рядом":
         context.args = ["50"]
         return await nearby(update, context)
@@ -4786,6 +4894,19 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if text == "➕ Груз":
         return
     if text == "🚚 Машина":
+        user_id = await ensure_user(update.effective_user)
+
+        truck = await DB.fetchrow("""
+            SELECT id
+            FROM trucks
+            WHERE driver_id=$1
+            ORDER BY id DESC
+            LIMIT 1
+        """, user_id)
+
+        if not truck:
+            return await truck_start(update, context)
+
         return await mytruck(update, context)
     if text == "🤝 Сделки":
         return await deals_list(update, context)
@@ -4894,6 +5015,9 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await deals_list(fake_update, context)
     if q.data == "menu_responses":
         return await responses_list(fake_update, context)
+
+    if q.data == "menu_myresponses":
+        return await myresponses(fake_update, context)
     if q.data == "menu_mysubs":
         return await mysubs(fake_update, context)
     if q.data == "menu_nearby":
@@ -5239,7 +5363,7 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📍 Рядом|🟢 Выгодные|⚙️ Настройки|➕ Груз|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|⚙️ Настройки|➕ Груз|🚚 Машина|🤝 Сделки|👤 Профиль|🏠 Меню)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cargo", cargo))
@@ -5302,6 +5426,7 @@ def main():
     app.add_handler(CommandHandler("nearby", nearby))
     app.add_handler(CommandHandler("nearby_profit", nearby_profit))
     app.add_handler(CommandHandler("check_profit", check_profit))
+    app.add_handler(CommandHandler("push_profit", push_profit))
     app.add_handler(CommandHandler("setrate", setrate))
     app.add_handler(CallbackQueryHandler(settings_buttons, pattern="^settings_"))
     app.add_handler(CommandHandler("subscribe", subscribe))
