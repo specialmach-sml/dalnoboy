@@ -1,0 +1,265 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Dalnoboy Map</title>
+  <style>
+    body { margin:0; font-family:Arial; }
+    #map { height:100vh; width:100vw; }
+    #panel {
+      position:absolute; top:20px; right:20px; z-index:1000;
+      width:320px; max-height:80vh; overflow:auto;
+      background:white; border-radius:12px; padding:12px;
+      box-shadow:0 4px 20px rgba(0,0,0,.25);
+    }
+    .cargo-card { border-bottom:1px solid #ddd; padding:10px 0; cursor:pointer; }
+    .cargo-card:hover { background:#f5f5f5; }
+    .btn {
+      display:inline-block; margin-top:8px; padding:8px 10px;
+      border-radius:8px; background:#e53935; color:white;
+      text-decoration:none; font-weight:bold;
+    }
+    .create-btn {
+      background:#1976d2; color:white; border:none;
+      padding:10px 14px; border-radius:8px;
+      cursor:pointer; font-weight:bold;
+    }
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+</head>
+<body>
+<div id="map"></div>
+
+<div id="panel">
+  <b>🚛 Dalnoboy карта</b><br>
+  <small id="cargoCount">Загрузка грузов...</small><br>
+  <button onclick="loadCargo('')" class="btn">📦 Все</button>
+  <button onclick="loadCargo('?profitability=profitable')" class="btn">🟢 Выгодные</button>
+  <button onclick="loadCargo('?min_rate=100')" class="btn">💵 от 100 ₽/км</button>
+  <br><br>
+  <input id="cityFilter" placeholder="Город" style="width:190px;padding:8px;border-radius:8px;border:1px solid #ccc;">
+  <button onclick="filterCity()" class="btn">🔎</button>
+  <div id="cargoList">Загрузка...</div>
+</div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script>
+const map = L.map('map').setView([55.7558, 37.6173], 6);
+
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 18
+}).addTo(map);
+
+
+let createMode = false;
+let pickupPoint = null;
+let dropoffPoint = null;
+let pickupMarker = null;
+let dropoffMarker = null;
+let routeLine = null;
+
+const createControl = L.control({ position: 'topleft' });
+
+createControl.onAdd = function() {
+  const div = L.DomUtil.create('div');
+  div.innerHTML =
+    '<button class="create-btn" id="createCargoBtn">➕ Создать груз</button>';
+
+  L.DomEvent.disableClickPropagation(div);
+  return div;
+};
+
+createControl.addTo(map);
+
+document.getElementById('createCargoBtn').addEventListener('click', function() {
+
+  createMode = true;
+
+  pickupPoint = null;
+  dropoffPoint = null;
+
+  if (pickupMarker) map.removeLayer(pickupMarker);
+  if (dropoffMarker) map.removeLayer(dropoffMarker);
+  if (routeLine) map.removeLayer(routeLine);
+
+  alert('Кликни ТОЧКУ ЗАГРУЗКИ');
+});
+
+map.on('click', function(e) {
+
+  if (!createMode) return;
+
+  if (!pickupPoint) {
+
+    pickupPoint = e.latlng;
+
+    pickupMarker = L.marker(e.latlng)
+      .addTo(map)
+      .bindPopup('📦 Точка загрузки')
+      .openPopup();
+
+    alert('Теперь кликни ТОЧКУ ВЫГРУЗКИ');
+
+    return;
+  }
+
+  if (!dropoffPoint) {
+
+    dropoffPoint = e.latlng;
+
+    dropoffMarker = L.marker(e.latlng)
+      .addTo(map)
+      .bindPopup('🏁 Точка выгрузки')
+      .openPopup();
+
+    const url =
+      'https://router.project-osrm.org/route/v1/driving/' +
+      pickupPoint.lng + ',' + pickupPoint.lat + ';' +
+      dropoffPoint.lng + ',' + dropoffPoint.lat +
+      '?overview=full&geometries=geojson';
+
+    fetch(url)
+      .then(r => r.json())
+      .then(routeData => {
+        const coords = routeData.routes[0].geometry.coordinates.map(p => [p[1], p[0]]);
+
+        routeLine = L.polyline(coords, {
+          color: 'blue',
+          weight: 5
+        }).addTo(map);
+
+        map.fitBounds(routeLine.getBounds(), {
+          padding: [50, 50]
+        });
+
+      });
+
+    createMode = false;
+
+    console.log('pickup:',
+      pickupPoint.lat,
+      pickupPoint.lng
+    );
+
+    console.log('dropoff:',
+      dropoffPoint.lat,
+      dropoffPoint.lng
+    );
+
+    alert('Маршрут создан');
+  }
+
+});
+const cargoIcon = L.divIcon({
+  html: '<div style="font-size:32px">📦</div>',
+  className: '',
+  iconSize: [32, 32],
+  iconAnchor: [16, 16]
+});
+
+function truckIconByFreshness(updatedAt) {
+  const updated = updatedAt ? new Date(updatedAt) : null;
+  const hours = updated ? (Date.now() - updated.getTime()) / 1000 / 3600 : 999;
+
+  const emoji = hours <= 2 ? '🟢🚚' : '🟡🚚';
+
+  return L.divIcon({
+    html: '<div style="font-size:28px">' + emoji + '</div>',
+    className: '',
+    iconSize: [40, 32],
+    iconAnchor: [20, 16]
+  });
+}
+
+let cargoMarkers = [];
+
+function clearCargoMarkers() {
+  cargoMarkers.forEach(m => map.removeLayer(m));
+  cargoMarkers = [];
+}
+
+function filterCity() {
+  const city = document.getElementById('cityFilter').value.trim();
+  loadCargo(city ? '?city=' + encodeURIComponent(city) : '');
+}
+
+function loadCargo(query) {
+  clearCargoMarkers();
+
+  fetch('/api/cargo/open' + query)
+    .then(r => r.json())
+    .then(data => {
+    const points = [];
+    const cargoList = document.getElementById('cargoList');
+    cargoList.innerHTML = '';
+    document.getElementById('cargoCount').innerText = 'Найдено грузов: ' + data.count;
+
+    data.items.forEach(c => {
+      const lat = parseFloat(c.load_latitude);
+      const lon = parseFloat(c.load_longitude);
+      points.push([lat, lon]);
+
+      const marker = L.marker([lat, lon], { icon: cargoIcon })
+        .addTo(map)
+        .bindPopup(
+          '<b>📦 Груз #' + c.id + '</b><br>' +
+          '🚩 ' + c.from_city + ' → ' + c.to_city + '<br>' +
+          '💰 ' + c.price_amount + ' ' + c.price_currency + '<br>' +
+          '📏 ' + (c.distance_km || '-') + ' км<br>' +
+          '💵 ' + (c.rate_per_km || '-') + ' ₽/км<br>' +
+          '📝 ' + (c.description || '') + '<br>' +
+          '<a class="btn" href="https://t.me/DalnoboyBrosBot" target="_blank">🚛 Откликнуться</a><br>' +
+          '<a class="btn" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lon + '" target="_blank">🧭 Маршрут</a>'
+        );
+
+      cargoMarkers.push(marker);
+
+      const card = document.createElement('div');
+      card.className = 'cargo-card';
+      card.innerHTML =
+        '<b>📦 Груз #' + c.id + '</b><br>' +
+        '🚩 ' + c.from_city + ' → ' + c.to_city + '<br>' +
+        '💰 ' + c.price_amount + ' ' + c.price_currency + '<br>' +
+          '📏 ' + (c.distance_km || '-') + ' км<br>' +
+          '💵 ' + (c.rate_per_km || '-') + ' ₽/км<br>' +
+        '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4);
+
+      card.onclick = () => {
+        map.setView([lat, lon], 10);
+        marker.openPopup();
+      };
+
+      cargoList.appendChild(card);
+    });
+
+    if (points.length > 0) {
+      map.fitBounds(points, { padding: [50, 50], maxZoom: 10 });
+    }
+  });
+}
+
+loadCargo('');
+
+fetch('/api/trucks/active')
+  .then(r => r.json())
+  .then(data => {
+    data.items.forEach(t => {
+      const lat = parseFloat(t.latitude);
+      const lon = parseFloat(t.longitude);
+
+      const updatedAt = t.location_updated_at || null;
+      const updatedText = updatedAt ? new Date(updatedAt).toLocaleString() : '-';
+
+      L.marker([lat, lon], { icon: truckIconByFreshness(updatedAt) })
+        .addTo(map)
+        .bindPopup(
+          '<b>🚚 Машина #' + t.id + '</b><br>' +
+          '👤 ' + (t.full_name || 'Водитель') + '<br>' +
+          '🕒 GEO: ' + updatedText + '<br>' +
+          '📍 ' + lat + ', ' + lon
+        );
+    });
+  });
+</script>
+</body>
+</html>
