@@ -33,7 +33,10 @@
 <div id="panel">
   <b>🚛 Dalnoboy карта</b><br>
   <small id="cargoCount">Загрузка грузов...</small><br>
+  <small id="truckCount">Загрузка машин...</small><br>
+  <small>🟢 GEO до 2ч · 🟡 GEO до 24ч</small><br>
   <button onclick="loadCargo('')" class="btn">📦 Все</button>
+  <button onclick="toggleTrucks()" class="btn">🚚 Машины ON/OFF</button>
   <button onclick="loadCargo('?profitability=profitable')" class="btn">🟢 Выгодные</button>
   <button onclick="loadCargo('?min_rate=100')" class="btn">💵 от 100 ₽/км</button>
   <br><br>
@@ -172,6 +175,8 @@ function truckIconByFreshness(updatedAt) {
 }
 
 let cargoMarkers = [];
+let truckMarkers = [];
+let trucksVisible = true;
 
 function clearCargoMarkers() {
   cargoMarkers.forEach(m => map.removeLayer(m));
@@ -240,9 +245,23 @@ function loadCargo(query) {
 
 loadCargo('');
 
+function toggleTrucks() {
+  trucksVisible = !trucksVisible;
+
+  truckMarkers.forEach(m => {
+    if (trucksVisible) {
+      m.addTo(map);
+    } else {
+      map.removeLayer(m);
+    }
+  });
+}
+
 fetch('/api/trucks/active')
   .then(r => r.json())
   .then(data => {
+    document.getElementById('truckCount').innerText = 'Активных машин: ' + data.count;
+
     data.items.forEach(t => {
       const lat = parseFloat(t.latitude);
       const lon = parseFloat(t.longitude);
@@ -250,7 +269,7 @@ fetch('/api/trucks/active')
       const updatedAt = t.location_updated_at || null;
       const updatedText = updatedAt ? new Date(updatedAt).toLocaleString() : '-';
 
-      L.marker([lat, lon], { icon: truckIconByFreshness(updatedAt) })
+      const truckMarker = L.marker([lat, lon], { icon: truckIconByFreshness(updatedAt) })
         .addTo(map)
         .bindPopup(
           '<b>🚚 Машина #' + t.id + '</b><br>' +
@@ -258,6 +277,8 @@ fetch('/api/trucks/active')
           '🕒 GEO: ' + updatedText + '<br>' +
           '📍 ' + lat + ', ' + lon
         );
+
+      truckMarkers.push(truckMarker);
     });
   });
 </script>
