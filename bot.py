@@ -64,6 +64,7 @@ def main_reply_keyboard():
             ["⚙️ Настройки"],
             ["➕ Груз", "🚚 Машина"],
             ["📨 Отклики", "👤 Профиль"],
+            ["💳 Тарифы"],
             ["🏠 Меню"]
         ],
         resize_keyboard=True,
@@ -966,31 +967,37 @@ async def truck_hide(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("💳 Подключить тариф", callback_data="buy_plan")]
+        [InlineKeyboardButton("🔥 Подключить PRO", callback_data="buy_plan")],
+        [InlineKeyboardButton("📡 DISPATCHER / ⭐ COMPANY", callback_data="buy_plan")],
+        [InlineKeyboardButton("👤 Мой профиль", callback_data="menu_profile")]
     ])
 
     await update.message.reply_text(
         "💼 Тарифы Dalnoboy\n\n"
         "🆓 FREE\n"
         "• 1 активный груз\n"
-        "• обычный показ в списке\n\n"
+        "• 1 машина\n"
+        "• поиск рядом до 150 км\n"
+        "• обычный показ\n\n"
         "🔥 PRO\n"
         "• до 5 активных грузов\n"
-        "• выше FREE в поиске\n"
-        "• бейдж PRO\n\n"
+        "• до 3 машин\n"
+        "• поиск рядом до 500 км\n"
+        "• раздел «Выгодные грузы»\n"
+        "• приоритет выше FREE\n\n"
         "📡 DISPATCHER\n"
         "• до 20 активных грузов\n"
-        "• для диспетчеров\n"
-        "• бейдж DISPATCHER\n\n"
+        "• до 10 машин\n"
+        "• работа с несколькими водителями\n"
+        "• расширенный поиск\n\n"
         "⭐ COMPANY\n"
         "• без лимита грузов\n"
-        "• самый высокий приоритет\n"
-        "• бейдж COMPANY\n\n"
-        "Для подключения тарифа нажмите кнопку ниже.",
+        "• без лимита радиуса\n"
+        "• максимальный приоритет\n"
+        "• для автопарков и компаний\n\n"
+        "Выберите подключение ниже.",
         reply_markup=kb
     )
-
-
 
 
 async def matching(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4849,20 +4856,22 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     rows = await DB.fetch("""
         SELECT
-            id,
-            from_city,
-            to_city,
-            description,
-            price_amount,
-            distance_km,
-            rate_per_km,
-            load_latitude,
-            load_longitude
-        FROM cargo
-        WHERE status='open'
-          AND load_latitude IS NOT NULL
-          AND load_longitude IS NOT NULL
-        ORDER BY id DESC
+            c.id,
+            c.from_city,
+            c.to_city,
+            c.description,
+            c.price_amount,
+            c.distance_km,
+            c.rate_per_km,
+            c.load_latitude,
+            c.load_longitude,
+            COALESCE(u.plan_type, 'free') AS owner_plan
+        FROM cargo c
+        JOIN users u ON u.id = c.created_by
+        WHERE c.status='open'
+          AND c.load_latitude IS NOT NULL
+          AND c.load_longitude IS NOT NULL
+        ORDER BY c.id DESC
         LIMIT 100
     """)
 
@@ -4879,7 +4888,19 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if dist is not None and dist <= radius:
             found.append((dist, r))
 
-    found.sort(key=lambda x: x[0])
+    plan_priority = {
+        "company": 0,
+        "dispatcher": 1,
+        "pro": 2,
+        "free": 3
+    }
+
+    found.sort(
+        key=lambda x: (
+            plan_priority.get((x[1]["owner_plan"] or "free"), 3),
+            x[0]
+        )
+    )
 
     if not found:
         await update.message.reply_text(
@@ -4899,8 +4920,17 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
             else:
                 econ = f"🔴 Ниже минималки: {rate} ₽/км ({delta} ₽/км)"
 
+        owner_plan = r["owner_plan"] or "free"
+        owner_badge = {
+            "company": "⭐ COMPANY",
+            "dispatcher": "📡 DISPATCHER",
+            "pro": "🔥 PRO",
+            "free": "🆓 FREE"
+        }.get(owner_plan, owner_plan.upper())
+
         await update.message.reply_text(
             f"📦 Груз #{r['id']}\n"
+            f"🏷 {owner_badge}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
             f"💰 {format_price(r['price_amount'])} RUB\n"
             f"📍 {dist} км до загрузки\n"
@@ -5202,6 +5232,8 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return
     if text == "👤 Профиль":
         return await profile(update, context)
+    if text == "💳 Тарифы":
+        return await plans(update, context)
     if text == "🏠 Меню":
         return await menu(update, context)
     if text == "🆘 Помощь":
@@ -5704,7 +5736,7 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|🏠 Меню)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cargo", cargo))
