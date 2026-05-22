@@ -5260,6 +5260,77 @@ async def post_init(app: Application):
 
     logging.info(f"Expired plans cleanup: {updated}")
 
+    try:
+        await notify_expiring_subscriptions(app)
+    except Exception as e:
+        logging.warning(f"notify_expiring_subscriptions failed: {e}")
+
+
+async def notify_expiring_subscriptions(app: Application):
+    rows = await DB.fetch("""
+        SELECT
+            id,
+            telegram_id,
+            plan_type,
+            plan_expires_at,
+            EXTRACT(DAY FROM (plan_expires_at - now()))::int AS days_left
+        FROM users
+        WHERE
+            plan_type != 'free'
+            AND plan_expires_at IS NOT NULL
+            AND plan_expires_at > now()
+            AND (
+                plan_expires_at <= now() + interval '3 days'
+            )
+    """)
+
+    for r in rows:
+        days_left = int(r["days_left"])
+
+        if days_left <= 0:
+            notify_type = "expire_0"
+        elif days_left <= 1:
+            notify_type = "expire_1"
+        else:
+            notify_type = "expire_3"
+
+        already = await DB.fetchval("""
+            SELECT id
+            FROM subscription_notifications
+            WHERE user_id=$1 AND notify_type=$2
+        """, r["id"], notify_type)
+
+        if already:
+            continue
+
+        try:
+            await app.bot.send_message(
+                chat_id=r["telegram_id"],
+                text=(
+                    f"⏳ Ваш тариф {r['plan_type'].upper()} скоро закончится.\n\n"
+                    f"Осталось дней: {max(days_left,0)}\n\n"
+                    "После окончания тарифа будут отключены:\n"
+                    "• выгодные грузы\n"
+                    "• приоритет в поиске\n"
+                    "• расширенный nearby\n\n"
+                    "💳 Продлите тариф заранее."
+                ),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("💳 Продлить тариф", callback_data="buy_plan")]
+                ])
+            )
+
+            await DB.execute("""
+                INSERT INTO subscription_notifications (
+                    user_id,
+                    notify_type
+                )
+                VALUES ($1,$2)
+            """, r["id"], notify_type)
+
+        except Exception as e:
+            logging.warning(f"subscription notify failed: {e}")
+
 
 async def admin_setplan_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
