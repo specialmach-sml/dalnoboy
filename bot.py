@@ -943,6 +943,36 @@ async def plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+
+
+async def matching(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import aiohttp
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("http://localhost:5000/api/matching/open-cargo") as resp:
+                data = await resp.json()
+
+        items = data.get("items", [])
+
+        if not items:
+            await update.message.reply_text("❌ Совпадений нет")
+            return
+
+        for m in items[:10]:
+            txt = (
+                f"📦 Груз #{m['cargo_id']}\n"
+                f"🚩 {m['from_city']} → {m['to_city']}\n"
+                f"🚚 Машина #{m['truck_id']}\n"
+                f"👤 {m['full_name']}\n"
+                f"🔥 Match: {m['match_score']}%"
+            )
+
+            await update.message.reply_text(txt)
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Matching error: {e}")
+
 async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -4513,6 +4543,103 @@ async def setrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+
+
+
+
+async def automatches(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import aiohttp
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("http://localhost:5000/api/matching/open-cargo") as resp:
+                data = await resp.json()
+
+        items = data.get("items", [])
+        sent = 0
+        skipped = 0
+
+        for m in items[:50]:
+            cargo_id = int(m["cargo_id"])
+            truck_id = int(m["truck_id"])
+
+            exists = await DB.fetchrow("""
+                SELECT id
+                FROM match_notifications
+                WHERE cargo_id=$1 AND truck_id=$2
+            """, cargo_id, truck_id)
+
+            if exists:
+                skipped += 1
+                continue
+
+            await update.message.reply_text(
+                f"🤖 Новое совпадение\n\n"
+                f"📦 Груз #{cargo_id}\n"
+                f"🚩 {m['from_city']} → {m['to_city']}\n"
+                f"💰 {m['price_amount']} ₽\n"
+                f"💵 {m['rate_per_km']} ₽/км\n\n"
+                f"🚚 Машина #{truck_id}\n"
+                f"👤 {m['full_name']}\n"
+                f"📦 Свободно: {m['available_tons']} т / {m['available_volume_m3']} м³\n"
+                f"🔥 Match: {m['match_score']}%"
+            )
+
+            await DB.execute("""
+                INSERT INTO match_notifications (cargo_id, truck_id)
+                VALUES ($1,$2)
+                ON CONFLICT (cargo_id, truck_id) DO NOTHING
+            """, cargo_id, truck_id)
+
+            sent += 1
+
+        await update.message.reply_text(
+            f"✅ Автоподбор завершён\n"
+            f"Отправлено новых: {sent}\n"
+            f"Пропущено дублей: {skipped}"
+        )
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Automatches error: {e}")
+
+
+async def pushmatches(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    import aiohttp
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get("http://localhost:5000/api/matching/open-cargo") as resp:
+                data = await resp.json()
+
+        items = data.get("items", [])
+
+        if not items:
+            await update.message.reply_text("❌ Совпадений для отправки нет")
+            return
+
+        sent = 0
+
+        for m in items[:20]:
+            text = (
+                f"🤖 Найдено совпадение\n\n"
+                f"📦 Груз #{m['cargo_id']}\n"
+                f"🚩 {m['from_city']} → {m['to_city']}\n"
+                f"💰 {m['price_amount']} ₽\n"
+                f"💵 {m['rate_per_km']} ₽/км\n\n"
+                f"🚚 Машина #{m['truck_id']}\n"
+                f"👤 {m['full_name']}\n"
+                f"📦 Свободно: {m['available_tons']} т / {m['available_volume_m3']} м³\n"
+                f"🔥 Match: {m['match_score']}%"
+            )
+
+            await update.message.reply_text(text)
+            sent += 1
+
+        await update.message.reply_text(f"✅ Отправлено совпадений: {sent}")
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Push matches error: {e}")
+
 async def push_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -5507,6 +5634,7 @@ def main():
     app.add_handler(CommandHandler("replydeal", replydeal))
     app.add_handler(CommandHandler("searchdeal", searchdeal))
     app.add_handler(CommandHandler("deals", deals_list))
+    app.add_handler(CommandHandler("matching", matching))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text))
     app.add_handler(CommandHandler("profile", profile))
     app.add_handler(CommandHandler("plans", plans))
@@ -5517,6 +5645,8 @@ def main():
     app.add_handler(CommandHandler("nearby_profit", nearby_profit))
     app.add_handler(CommandHandler("check_profit", check_profit))
     app.add_handler(CommandHandler("push_profit", push_profit))
+    app.add_handler(CommandHandler("pushmatches", pushmatches))
+    app.add_handler(CommandHandler("automatches", automatches))
     app.add_handler(CommandHandler("setrate", setrate))
     app.add_handler(CallbackQueryHandler(settings_buttons, pattern="^settings_"))
     app.add_handler(CommandHandler("subscribe", subscribe))

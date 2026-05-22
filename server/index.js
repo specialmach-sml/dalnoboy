@@ -691,6 +691,63 @@ app.get("/api/cargo/:id/available-trucks", async (req, res) => {
   }
 });
 
+
+app.get("/api/matching/open-cargo", async (req, res) => {
+  try {
+    const rows = await pool.query(`
+      SELECT
+        c.id AS cargo_id,
+        c.from_city,
+        c.to_city,
+        c.weight_tons,
+        c.volume_m3,
+        c.price_amount,
+        c.rate_per_km,
+        t.id AS truck_id,
+        t.driver_id,
+        t.current_city,
+        t.body_type,
+        t.available_tons,
+        t.available_volume_m3,
+        t.route_from,
+        t.route_to,
+        t.latitude,
+        t.longitude,
+        u.full_name,
+        (
+          40
+          + CASE WHEN COALESCE(t.available_tons, 0) >= COALESCE(c.weight_tons, 0) THEN 20 ELSE 0 END
+          + CASE WHEN COALESCE(t.available_volume_m3, 0) >= COALESCE(c.volume_m3, 0) THEN 20 ELSE 0 END
+          + CASE WHEN t.location_updated_at > now() - interval '2 hours' THEN 10 ELSE 0 END
+          + CASE WHEN COALESCE(u.plan_type, 'free') IN ('pro','company') THEN 10 ELSE 0 END
+        ) AS match_score
+      FROM cargo c
+      JOIN trucks t ON t.allow_partial_load=true
+      LEFT JOIN users u ON u.id = t.driver_id
+      WHERE c.status='open'
+        AND t.status='active'
+        AND t.latitude IS NOT NULL
+        AND t.longitude IS NOT NULL
+        AND t.location_updated_at > now() - interval '24 hours'
+        AND COALESCE(t.available_tons, 0) >= COALESCE(c.weight_tons, 0)
+        AND COALESCE(t.available_volume_m3, 0) >= COALESCE(c.volume_m3, 0)
+        AND (t.route_from ILIKE '%' || c.from_city || '%' OR t.current_city ILIKE '%' || c.from_city || '%')
+        AND t.route_to ILIKE '%' || c.to_city || '%'
+      ORDER BY match_score DESC, c.id DESC
+      LIMIT 200
+    `);
+
+    res.json({
+      success: true,
+      count: rows.rows.length,
+      items: rows.rows
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success:false, error:e.message });
+  }
+});
+
 app.listen(5000, () => {
   console.log("Server started: http://localhost:5000");
 });
