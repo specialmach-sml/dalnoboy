@@ -793,6 +793,7 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await truck_start(update, context)
 
     kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("➕ Добавить машину", callback_data="truck_add")],
         [InlineKeyboardButton("🔁 Обновить в поиске", callback_data=f"truck_refresh_{truck['id']}")],
         [InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby")],
         [InlineKeyboardButton("❌ Убрать из поиска", callback_data=f"truck_hide_{truck['id']}")]
@@ -815,6 +816,53 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+
+
+async def truck_add_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    user_id = await ensure_user(q.from_user)
+
+    user = await DB.fetchrow("""
+        SELECT COALESCE(plan_type, 'free') AS plan_type
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    plan_type = user["plan_type"] if user else "free"
+
+    trucks_count = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM trucks
+        WHERE driver_id=$1
+    """, user_id)
+
+    limits = {
+        "free": 1,
+        "pro": 3,
+        "dispatcher": 10,
+        "company": 999999
+    }
+
+    limit = limits.get(plan_type, 1)
+
+    if trucks_count >= limit:
+        await q.message.reply_text(
+            f"⛔ Лимит машин для тарифа {plan_type.upper()}: {limit}\n\n"
+            f"У вас уже добавлено машин: {trucks_count}\n\n"
+            "Чтобы добавить больше машин, подключите PRO или COMPANY."
+        )
+        return
+
+    context.user_data["truck"] = {}
+
+    await q.message.reply_text(
+        "🚚 Добавление машины\n\n"
+        "📍 Введите текущий город:"
+    )
+
+    return TRUCK_CITY
 
 
 async def truck_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4746,6 +4794,14 @@ async def nearby_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
+    user = await DB.fetchrow("""
+        SELECT COALESCE(plan_type, 'free') AS plan_type
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    plan_type = user["plan_type"] if user else "free"
+
     radius = None
 
     if context.args:
@@ -4763,7 +4819,20 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, user_id)
 
     if radius is None:
-        radius = int(truck["search_radius_km"] or 50)
+        radius = int(truck["search_radius_km"] or 50) if truck else 50
+
+    max_radius = None
+    if plan_type == "free":
+        max_radius = 150
+    elif plan_type in ["pro", "dispatcher"]:
+        max_radius = 500
+
+    if max_radius is not None and radius > max_radius:
+        radius = max_radius
+        await update.message.reply_text(
+            f"ℹ️ Для тарифа {plan_type.upper()} максимальный радиус поиска: {max_radius} км.\n"
+            f"Показываю грузы в радиусе {max_radius} км."
+        )
 
     if not truck or not truck["latitude"] or not truck["longitude"]:
         kb = ReplyKeyboardMarkup(
@@ -5734,6 +5803,7 @@ def main():
     app.add_handler(CallbackQueryHandler(sub_on, pattern="^sub_on_"))
     app.add_handler(CallbackQueryHandler(sub_off, pattern="^sub_off_"))
     app.add_handler(CallbackQueryHandler(driver_profile_button, pattern="^driver_profile_"))
+    app.add_handler(CallbackQueryHandler(truck_add_button, pattern="^truck_add$"))
     app.add_handler(CallbackQueryHandler(truck_refresh, pattern="^truck_refresh_"))
     app.add_handler(CallbackQueryHandler(truck_hide, pattern="^truck_hide_"))
     app.add_handler(CallbackQueryHandler(truck_deal_button, pattern="^truck_deal_"))
