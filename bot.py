@@ -3029,7 +3029,7 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await DB.execute("""
+    response_id = await DB.fetchval("""
         INSERT INTO responses (
             cargo_id,
             truck_id,
@@ -3038,6 +3038,7 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status
         )
         VALUES ($1,$2,$3,$4,'pending')
+        RETURNING id
     """,
         cargo_id,
         truck["id"],
@@ -3066,8 +3067,11 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"👤 Водитель: {tg_user.full_name}"
                 ),
                 reply_markup=InlineKeyboardMarkup([
-                    [InlineKeyboardButton("📨 Смотреть отклики", callback_data="menu_responses")],
-                    [InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals")]
+                    [
+                        InlineKeyboardButton("✅ Принять", callback_data=f"accept_{response_id}"),
+                        InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{response_id}")
+                    ],
+                    [InlineKeyboardButton("📨 Все отклики", callback_data="menu_responses")]
                 ])
             )
         except Exception as e:
@@ -5142,6 +5146,19 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
 async def post_init(app: Application):
     await init_db()
 
+    updated = await DB.execute("""
+        UPDATE users
+        SET
+            plan_type='free',
+            plan_expires_at=NULL
+        WHERE
+            plan_type != 'free'
+            AND plan_expires_at IS NOT NULL
+            AND plan_expires_at < now()
+    """)
+
+    logging.info(f"Expired plans cleanup: {updated}")
+
 
 async def admin_setplan_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -5514,9 +5531,10 @@ async def setplan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "Используй:\n"
             "/setplan USER_ID free\n"
-            "/setplan USER_ID pro\n"
-            "/setplan USER_ID dispatcher\n"
-            "/setplan USER_ID company"
+            "/setplan USER_ID pro 30\n"
+            "/setplan USER_ID dispatcher 30\n"
+            "/setplan USER_ID company 30\n\n"
+            "Где 30 — количество дней. Для free срок очищается."
         )
         return
 
@@ -5533,14 +5551,51 @@ async def setplan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Тариф должен быть: free, pro, dispatcher, company")
         return
 
+    days = None
+    if len(context.args) >= 3:
+        try:
+            days = int(context.args[2])
+        except ValueError:
+            await update.message.reply_text("Количество дней должно быть числом")
+            return
+
+        if days <= 0:
+            await update.message.reply_text("Количество дней должно быть больше 0")
+            return
+
+    if plan == "free":
+        await DB.execute("""
+            UPDATE users
+            SET plan_type='free',
+                plan_expires_at=NULL
+            WHERE id=$1
+        """, target_id)
+
+        await update.message.reply_text(
+            f"✅ User #{target_id} переведён на FREE"
+        )
+        return
+
+    if days is None:
+        days = 30
+
     await DB.execute("""
         UPDATE users
-        SET plan_type=$1
-        WHERE id=$2
-    """, plan, target_id)
+        SET plan_type=$1,
+            plan_expires_at=now() + ($2::int * interval '1 day')
+        WHERE id=$3
+    """, plan, days, target_id)
+
+    expires_at = await DB.fetchval("""
+        SELECT plan_expires_at
+        FROM users
+        WHERE id=$1
+    """, target_id)
 
     await update.message.reply_text(
-        f"✅ User #{target_id} переведён на тариф {plan.upper()}"
+        f"✅ User #{target_id} переведён на тариф {plan.upper()}\n"
+        f"⏳ Срок: {days} дней\n"
+        f"Дата окончания: {expires_at}"
     )
 
 def main():
