@@ -5438,9 +5438,41 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         tg_user = update.effective_user
 
         await q.message.reply_text(
-            f"✅ Заявка отправлена администратору.\n\n"
+            "💳 Оплата тарифа PRO\n\n"
+            "🔥 PRO — 990 ₽ / 30 дней\n\n"
+            "Оплата по СБП:\n"
+            "+7XXXXXXXXXX\n\n"
+            "После оплаты отправьте чек администратору.\n\n"
             f"🆔 Ваш ID: {user_id}"
         )
+
+        payment_id = await DB.fetchval("""
+            INSERT INTO payments (
+                company_id,
+                amount_minor,
+                currency_code,
+                operation_type,
+                description,
+                user_id,
+                plan_type,
+                status,
+                provider,
+                created_by_user_id
+            )
+            VALUES (
+                1,
+                99000,
+                'RUB',
+                'subscription',
+                'PRO 30 days',
+                $1,
+                'pro',
+                'pending',
+                'manual_sbp',
+                $1
+            )
+            RETURNING id
+        """, user_id)
 
         admin_kb = InlineKeyboardMarkup([
             [
@@ -5459,11 +5491,14 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(
                 chat_id=439871270,
                 text=(
-                    "💳 Новая заявка на тариф\n\n"
+                    "💳 Новая заявка на оплату\n\n"
+                    f"Payment ID: {payment_id}\n"
                     f"User ID: {user_id}\n"
                     f"Telegram ID: {tg_user.id}\n"
                     f"Имя: {tg_user.full_name or '-'}\n"
-                    f"Username: {username}"
+                    f"Username: {username}\n"
+                    "Тариф: PRO\n"
+                    "Сумма: 990 ₽"
                 ),
                 reply_markup=admin_kb
             )
