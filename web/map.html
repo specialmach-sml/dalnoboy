@@ -7,17 +7,38 @@
     body { margin:0; font-family:Arial; }
     #map { height:100vh; width:100vw; }
     #panel {
-      position:absolute; top:20px; right:20px; z-index:1000;
-      width:320px; max-height:80vh; overflow:auto;
-      background:white; border-radius:12px; padding:12px;
-      box-shadow:0 4px 20px rgba(0,0,0,.25);
+      position:absolute; top:16px; right:16px; z-index:1000;
+      width:330px; max-height:86vh;
+      background:white; border-radius:14px; padding:12px;
+      box-shadow:0 6px 24px rgba(0,0,0,.28);
+      font-size:14px;
     }
-    .cargo-card { border-bottom:1px solid #ddd; padding:10px 0; cursor:pointer; }
-    .cargo-card:hover { background:#f5f5f5; }
+    #panelHeader {
+      position:sticky; top:0; background:white; z-index:2;
+      padding-bottom:8px; border-bottom:1px solid #eee;
+    }
+    #cargoList {
+      max-height:58vh; overflow:auto; padding-right:4px;
+    }
+    .toolbar {
+      display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;
+    }
+    .cargo-card {
+      border-bottom:1px solid #e5e5e5; padding:9px 0; cursor:pointer;
+      line-height:1.35;
+    }
+    .cargo-card:hover { background:#f6f6f6; }
     .btn {
-      display:inline-block; margin-top:8px; padding:8px 10px;
+      display:inline-block; padding:7px 9px;
       border-radius:8px; background:#e53935; color:white;
-      text-decoration:none; font-weight:bold;
+      text-decoration:none; font-weight:bold; border:none; cursor:pointer;
+      font-size:13px;
+    }
+    .btn-blue { background:#1976d2; }
+    .btn-green { background:#2e7d32; }
+    .btn-dark { background:#455a64; }
+    .input {
+      padding:8px; border-radius:8px; border:1px solid #ccc;
     }
     .create-btn {
       background:#1976d2; color:white; border:none;
@@ -31,20 +52,38 @@
 <div id="map"></div>
 
 <div id="panel">
-  <b>🚛 Dalnoboy карта</b><br>
-  <small id="cargoCount">Загрузка грузов...</small><br>
-  <small id="truckCount">Загрузка машин...</small><br>
-  <small>🟢 GEO до 2ч · 🟡 GEO до 24ч</small><br>
-  <small>🟢 груз ≥100 ₽/км · 🟡 есть ставка · 🔴 без ставки</small><br>
-  <button onclick="loadCargo('')" class="btn">📦 Все</button>
-  <button onclick="toggleTrucks()" class="btn">🚚 Машины ON/OFF</button>
-  <button onclick="loadCargo('?profitability=profitable')" class="btn">🟢 Выгодные</button>
-  <button onclick="loadCargo('?min_rate=100')" class="btn">💵 от 100 ₽/км</button>
-  <button onclick="loadAvailableTrucks()" class="btn">🚚 Догруз</button>
-  <br><br>
-  <input id="cityFilter" placeholder="Город" onkeydown="if(event.key==='Enter'){filterCity()}" style="width:190px;padding:8px;border-radius:8px;border:1px solid #ccc;">
-  <button onclick="filterCity()" class="btn">🔎</button>
-  <button onclick="document.getElementById('cityFilter').value=''; loadCargo('')" class="btn">❌</button>
+  <div id="panelHeader">
+    <b>🚛 Dalnoboy карта</b><br>
+    <small id="cargoCount">Загрузка грузов...</small><br>
+    <small id="truckCount">Загрузка машин...</small><br>
+    <small>🟢 GEO до 2ч · 🟡 GEO до 24ч</small><br>
+    <small>🟢 ≥100 ₽/км · 🟡 есть ставка · 🔴 без ставки</small>
+
+    <div class="toolbar">
+      <button onclick="loadCargo('')" class="btn">📦 Все</button>
+      <button onclick="loadCargo('?profitability=profitable')" class="btn btn-green">🟢 Выгодные</button>
+      <button onclick="loadCargo('?min_rate=100')" class="btn btn-green">💵 от 100</button>
+      <button onclick="loadAvailableTrucks()" class="btn btn-dark">🚚 Догруз</button>
+      <button onclick="toggleTrucks()" class="btn btn-dark">🚚 Машины</button>
+      <button onclick="toggleAutoRefresh()" id="autoRefreshBtn" class="btn btn-blue">🔄 Авто ON</button>
+    </div>
+
+    <div class="toolbar">
+      <button onclick="showMyLocation()" class="btn btn-blue">📍 Я здесь</button>
+      <select id="radiusSelect" class="input">
+        <option value="50">50 км</option>
+        <option value="150" selected>150 км</option>
+        <option value="500">500 км</option>
+      </select>
+    </div>
+
+    <div class="toolbar">
+      <input id="cityFilter" placeholder="Город" onkeydown="if(event.key==='Enter'){filterCity()}" class="input" style="width:185px;">
+      <button onclick="filterCity()" class="btn btn-blue">🔎</button>
+      <button onclick="document.getElementById('cityFilter').value=''; loadCargo('')" class="btn">❌</button>
+    </div>
+  </div>
+
   <div id="cargoList">Загрузка...</div>
 </div>
 
@@ -56,6 +95,52 @@ L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 18
 }).addTo(map);
 
+
+
+
+let myLocationMarker = null;
+let myRadiusCircle = null;
+
+function showMyLocation() {
+  if (!navigator.geolocation) {
+    alert('Геолокация не поддерживается браузером');
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+      const radiusKm = Number(document.getElementById('radiusSelect').value || 150);
+
+      if (myLocationMarker) map.removeLayer(myLocationMarker);
+      if (myRadiusCircle) map.removeLayer(myRadiusCircle);
+
+      myLocationMarker = L.marker([lat, lon])
+        .addTo(map)
+        .bindPopup('📍 Вы здесь<br>Радиус: ' + radiusKm + ' км')
+        .openPopup();
+
+      myRadiusCircle = L.circle([lat, lon], {
+        radius: radiusKm * 1000,
+        weight: 2,
+        fillOpacity: 0.08
+      }).addTo(map);
+
+      map.fitBounds(myRadiusCircle.getBounds(), {
+        padding: [40, 40]
+      });
+    },
+    err => {
+      alert('Не удалось получить геолокацию: ' + err.message);
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 60000
+    }
+  );
+}
 
 let createMode = false;
 let pickupPoint = null;
@@ -189,12 +274,50 @@ function truckIconByFreshness(updatedAt) {
 }
 
 let cargoMarkers = [];
+let cargoLines = [];
 let truckMarkers = [];
 let trucksVisible = true;
+let lastCargoQuery = '';
+let autoRefreshEnabled = true;
+
+function clearCargoLines() {
+  cargoLines.forEach(l => map.removeLayer(l));
+  cargoLines = [];
+}
+
+function drawCargoRoute(c) {
+  const loadLat = parseFloat(c.load_latitude);
+  const loadLon = parseFloat(c.load_longitude);
+  const unloadLat = parseFloat(c.unload_latitude);
+  const unloadLon = parseFloat(c.unload_longitude);
+
+  if (!loadLat || !loadLon || !unloadLat || !unloadLon) return;
+
+  const line = L.polyline(
+    [
+      [loadLat, loadLon],
+      [unloadLat, unloadLon]
+    ],
+    {
+      weight: 3,
+      opacity: 0.65,
+      dashArray: '8, 8'
+    }
+  ).addTo(map);
+
+  line.bindPopup(
+    '<b>🛣 Маршрут груза #' + c.id + '</b><br>' +
+    '🚩 ' + c.from_city + ' → ' + c.to_city + '<br>' +
+    '📏 ' + (c.distance_km || '-') + ' км'
+  );
+
+  cargoLines.push(line);
+}
 
 function clearCargoMarkers() {
   cargoMarkers.forEach(m => map.removeLayer(m));
   cargoMarkers = [];
+  clearCargoLines();
 }
 
 function filterCity() {
@@ -203,6 +326,7 @@ function filterCity() {
 }
 
 function loadCargo(query) {
+  lastCargoQuery = query || '';
   clearCargoMarkers();
 
   fetch('/api/cargo/open' + query)
@@ -233,6 +357,7 @@ function loadCargo(query) {
         );
 
       cargoMarkers.push(marker);
+      drawCargoRoute(c);
 
       const card = document.createElement('div');
       card.className = 'cargo-card';
@@ -244,8 +369,21 @@ function loadCargo(query) {
           '💵 ' + (c.rate_per_km || '-') + ' ₽/км<br>' +
         '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4);
 
+      card.onmouseenter = () => {
+        marker.openPopup();
+        marker.setZIndexOffset(2000);
+      };
+
+      card.onmouseleave = () => {
+        marker.closePopup();
+        marker.setZIndexOffset(0);
+      };
+
       card.onclick = () => {
-        map.setView([lat, lon], 10);
+        map.flyTo([lat, lon], 10, {
+          duration: 0.8
+        });
+
         marker.openPopup();
       };
 
@@ -259,6 +397,12 @@ function loadCargo(query) {
 }
 
 loadCargo('');
+
+setInterval(() => {
+  if (autoRefreshEnabled) {
+    loadCargo(lastCargoQuery);
+  }
+}, 30000);
 
 function loadAvailableTrucks(cargoId) {
   const cargoList = document.getElementById('cargoList');
@@ -293,6 +437,20 @@ function loadAvailableTrucks(cargoId) {
         cargoList.appendChild(card);
       });
     });
+}
+
+
+
+function toggleAutoRefresh() {
+  autoRefreshEnabled = !autoRefreshEnabled;
+
+  const btn = document.getElementById('autoRefreshBtn');
+
+  if (btn) {
+    btn.innerText = autoRefreshEnabled
+      ? '🔄 Авто ON'
+      : '⏸ Авто OFF';
+  }
 }
 
 function toggleTrucks() {

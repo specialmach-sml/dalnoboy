@@ -242,7 +242,9 @@ app.get("/api/cargo/open", async (req, res) => {
         distance_km,
         rate_per_km,
         load_latitude,
-        load_longitude
+        load_longitude,
+        unload_latitude,
+        unload_longitude
       FROM cargo
       ${where}
       ORDER BY
@@ -313,7 +315,9 @@ app.get("/api/nearby", async (req, res) => {
         distance_km,
         rate_per_km,
         load_latitude,
-        load_longitude
+        load_longitude,
+        unload_latitude,
+        unload_longitude
       FROM cargo
       WHERE status='open'
         AND load_latitude IS NOT NULL
