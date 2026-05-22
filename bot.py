@@ -5743,6 +5743,11 @@ async def setplan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             WHERE id=$1
         """, target_id)
 
+        await DB.execute("""
+            DELETE FROM subscription_notifications
+            WHERE user_id=$1
+        """, target_id)
+
         await update.message.reply_text(
             f"✅ User #{target_id} переведён на FREE"
         )
@@ -5757,6 +5762,11 @@ async def setplan(update: Update, context: ContextTypes.DEFAULT_TYPE):
             plan_expires_at=now() + ($2::int * interval '1 day')
         WHERE id=$3
     """, plan, days, target_id)
+
+    await DB.execute("""
+        DELETE FROM subscription_notifications
+        WHERE user_id=$1
+    """, target_id)
 
     expires_at = await DB.fetchval("""
         SELECT plan_expires_at
