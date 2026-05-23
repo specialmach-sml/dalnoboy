@@ -121,6 +121,7 @@
     <small>🟢 ≥100 ₽/км · 🟡 есть ставка · 🔴 без ставки</small>
 
     <div class="toolbar">
+      <button onclick="loadPersonalNearby()" class="btn btn-green">🚚 Моё</button>
       <button onclick="loadCargo('')" class="btn">📦 Все</button>
       <button onclick="loadCargo('?profitability=profitable')" class="btn btn-green">🟢 Выгодные</button>
 
@@ -131,9 +132,6 @@
         style="width:82px;padding:6px;font-size:12px;display:none"
       >
 
-      <button onclick="loadPersonalNearby()" class="btn btn-dark">
-        🚚 Моё
-      </button>
       <button onclick="loadCargo('?min_rate=100')" class="btn btn-green">💵 от 100</button>
       <button onclick="loadAvailableTrucks()" class="btn btn-dark">🚚 Догруз</button>
       <button onclick="toggleTrucks()" class="btn btn-dark">🚚 Машины</button>
