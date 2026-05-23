@@ -5210,7 +5210,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [
                 InlineKeyboardButton(
                     "🗺 Открыть карту",
-                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=31")
+                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=80")
                 )
             ]
         ])

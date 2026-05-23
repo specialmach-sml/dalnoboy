@@ -49,6 +49,7 @@
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
 <div id="map"></div>
@@ -127,7 +128,7 @@
         id="telegramIdInput"
         class="input"
         placeholder="TG ID"
-        style="width:82px;padding:6px;font-size:12px"
+        style="width:82px;padding:6px;font-size:12px;display:none"
       >
 
       <button onclick="loadPersonalNearby()" class="btn btn-dark">
@@ -162,6 +163,20 @@
 <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 const map = L.map('map').setView([55.7558, 37.6173], 6);
+
+let telegramUserId = null;
+
+if (window.Telegram && Telegram.WebApp) {
+  Telegram.WebApp.ready();
+  Telegram.WebApp.expand();
+
+  const tgUser = Telegram.WebApp.initDataUnsafe?.user;
+
+  if (tgUser && tgUser.id) {
+    telegramUserId = tgUser.id;
+  }
+}
+
 
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 18
@@ -761,10 +776,16 @@ function loadAvailableTrucks(cargoId) {
 
 
 function loadPersonalNearby() {
-  const tgId = document.getElementById('telegramIdInput').value.trim();
+  let tgId = telegramUserId;
+
+  const input = document.getElementById('telegramIdInput');
+
+  if (!tgId && input) {
+    tgId = input.value.trim();
+  }
 
   if (!tgId) {
-    alert('Введите Telegram ID');
+    alert('Не удалось определить Telegram ID. Откройте карту из Telegram Mini App.');
     return;
   }
 
@@ -892,7 +913,6 @@ fetch('/api/trucks/active')
 
   #telegramIdInput,
   #autoRefreshBtn,
-  button[onclick="loadPersonalNearby()"],
   button[onclick="loadAvailableTrucks()"],
   button[onclick="toggleTrucks()"],
   button[onclick="loadCargo('?min_rate=100')"] {
@@ -923,3 +943,80 @@ fetch('/api/trucks/active')
 
 </body>
 </html>
+<style>
+@media (max-width: 768px) {
+  #panel {
+    top: auto !important;
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 8px !important;
+    width: auto !important;
+    max-height: 44vh !important;
+    padding: 10px !important;
+    border-radius: 20px !important;
+    font-size: 12px !important;
+  }
+
+  #panelHeader {
+    padding-bottom: 6px !important;
+  }
+
+  #panelHeader small:nth-of-type(n+3) {
+    display: none !important;
+  }
+
+  .toolbar {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6px !important;
+    margin-top: 6px !important;
+  }
+
+  .toolbar .btn {
+    width: 100% !important;
+    padding: 8px 4px !important;
+    font-size: 12px !important;
+    text-align: center !important;
+    white-space: nowrap !important;
+  }
+
+  #radiusSelect {
+    width: 100% !important;
+    font-size: 12px !important;
+  }
+
+  #cityFilter {
+    width: 100% !important;
+    grid-column: span 2 !important;
+  }
+
+  #telegramIdInput,
+  #autoRefreshBtn,
+  button[onclick="loadAvailableTrucks()"],
+  button[onclick="toggleTrucks()"],
+  button[onclick="loadCargo('?min_rate=100')"] {
+    display: none !important;
+  }
+
+  #cargoList {
+    max-height: 20vh !important;
+    overflow-y: auto !important;
+    padding-right: 4px !important;
+  }
+
+  .cargo-card {
+    font-size: 12px !important;
+    padding: 7px 0 !important;
+    line-height: 1.25 !important;
+  }
+
+  #createCargoPanel {
+    top: 70px !important;
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    max-height: 70vh !important;
+    overflow-y: auto !important;
+  }
+}
+</style>
