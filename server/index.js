@@ -752,6 +752,14 @@ app.get("/api/matching/open-cargo", async (req, res) => {
   }
 });
 
-app.listen(5000, () => {
-  console.log("Server started: http://localhost:5000");
+app.get("/", (req, res) => {
+  res.sendFile("/root/dalnoboy/web/map.html");
+});
+
+app.get("/map", (req, res) => {
+  res.sendFile("/root/dalnoboy/web/map.html");
+});
+
+app.listen(5000, "0.0.0.0", () => {
+  console.log("Server started: http://0.0.0.0:5000");
 });

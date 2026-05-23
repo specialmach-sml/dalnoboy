@@ -61,6 +61,7 @@ def main_reply_keyboard():
         [
             ["📦 Грузы", "📋 Мои грузы"],
             ["📍 Рядом", "🟢 Выгодные"],
+            ["🗺 Карта"],
             ["⚙️ Настройки"],
             ["➕ Груз", "🚚 Машина"],
             ["📨 Отклики", "👤 Профиль"],
@@ -4725,9 +4726,9 @@ async def push_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             f"🟢 Новый выгодный груз #{r['id']}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
-            f"💰 {r['price_amount']} RUB\n"
-            f"💵 {r['rate_per_km']} ₽/км\n"
-            f"📈 +{r['profit_delta']} ₽/км к вашей минималке\n"
+            f"💰 {format_price(r['price_amount'])} RUB\n"
+            f"💵 {round(float(r['rate_per_km'] or 0), 2)} ₽/км\n"
+            f"📈 +{round(float(r['profit_delta'] or 0), 2)} ₽/км к вашей минималке\n"
             f"📍 {r['distance_km']} км до загрузки\n"
             f"📝 {r['description'] or '-'}",
             reply_markup=InlineKeyboardMarkup([
@@ -5202,6 +5203,23 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await nearby_profit(update, context)
     if text == "⚙️ Настройки":
         return await truck_settings(update, context)
+    if text == "🗺 Карта":
+        from telegram import WebAppInfo
+
+        kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    "🗺 Открыть карту",
+                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=31")
+                )
+            ]
+        ])
+
+        await update.message.reply_text(
+            "🗺 Карта Dalnoboy",
+            reply_markup=kb
+        )
+        return
     if text == "➕ Груз":
         return
     if text == "🚚 Машина":
@@ -5852,7 +5870,7 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cargo", cargo))

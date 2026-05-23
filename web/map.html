@@ -47,9 +47,69 @@
     }
   </style>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
 </head>
 <body>
 <div id="map"></div>
+
+
+<div id="createCargoPanel" style="
+  display:none;
+  position:absolute;
+  top:70px;
+  left:12px;
+  z-index:2000;
+  background:white;
+  padding:12px;
+  border-radius:14px;
+  width:280px;
+  box-shadow:0 4px 18px rgba(0,0,0,.2);
+">
+
+  <b>➕ Новый груз</b><br><br>
+
+  <input id="pickupAddress"
+         class="input"
+         placeholder="Адрес загрузки"
+         style="width:100%;margin-bottom:8px">
+
+  <button onclick="findPickupAddress()"
+          class="btn btn-blue"
+          style="width:100%;margin-bottom:10px">
+    🔎 Найти загрузку
+  </button>
+
+  <input id="dropoffAddress"
+         class="input"
+         placeholder="Адрес выгрузки"
+         style="width:100%;margin-bottom:8px">
+
+  <button onclick="findDropoffAddress()"
+          class="btn btn-blue"
+          style="width:100%;margin-bottom:10px">
+    🔎 Найти выгрузку
+  </button>
+
+  <input id="cargoPrice"
+         class="input"
+         placeholder="Цена ₽"
+         style="width:100%;margin-bottom:8px">
+
+  <textarea id="cargoDescription"
+            class="input"
+            placeholder="Описание"
+            style="width:100%;height:70px;margin-bottom:10px"></textarea>
+
+  <button onclick="submitCreatedCargo()"
+          class="btn"
+          style="width:100%">
+    ✅ Создать груз
+  </button>
+
+</div>
+
+
 
 <div id="panel">
   <div id="panelHeader">
@@ -62,10 +122,21 @@
     <div class="toolbar">
       <button onclick="loadCargo('')" class="btn">📦 Все</button>
       <button onclick="loadCargo('?profitability=profitable')" class="btn btn-green">🟢 Выгодные</button>
+
+      <input
+        id="telegramIdInput"
+        class="input"
+        placeholder="TG ID"
+        style="width:82px;padding:6px;font-size:12px"
+      >
+
+      <button onclick="loadPersonalNearby()" class="btn btn-dark">
+        🚚 Моё
+      </button>
       <button onclick="loadCargo('?min_rate=100')" class="btn btn-green">💵 от 100</button>
       <button onclick="loadAvailableTrucks()" class="btn btn-dark">🚚 Догруз</button>
       <button onclick="toggleTrucks()" class="btn btn-dark">🚚 Машины</button>
-      <button onclick="toggleAutoRefresh()" id="autoRefreshBtn" class="btn btn-blue">🔄 Авто ON</button>
+      <button onclick="toggleAutoRefresh()" id="autoRefreshBtn" class="btn btn-blue">⏸ Авто OFF</button>
     </div>
 
     <div class="toolbar">
@@ -88,6 +159,7 @@
 </div>
 
 <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
 <script>
 const map = L.map('map').setView([55.7558, 37.6173], 6);
 
@@ -163,17 +235,14 @@ createControl.onAdd = function() {
 createControl.addTo(map);
 
 document.getElementById('createCargoBtn').addEventListener('click', function() {
+  const panel = document.getElementById('createCargoPanel');
 
-  createMode = true;
+  panel.style.display =
+    panel.style.display === 'block'
+      ? 'none'
+      : 'block';
 
-  pickupPoint = null;
-  dropoffPoint = null;
-
-  if (pickupMarker) map.removeLayer(pickupMarker);
-  if (dropoffMarker) map.removeLayer(dropoffMarker);
-  if (routeLine) map.removeLayer(routeLine);
-
-  alert('Кликни ТОЧКУ ЗАГРУЗКИ');
+  createMode = false;
 });
 
 map.on('click', function(e) {
@@ -237,10 +306,249 @@ map.on('click', function(e) {
       dropoffPoint.lng
     );
 
-    alert('Маршрут создан');
+    const distanceKm = routeLine
+      ? Math.round((routeLine.getLatLngs().reduce((sum, p, i, arr) => {
+          if (i === 0) return 0;
+          return sum + arr[i - 1].distanceTo(p);
+        }, 0) / 1000) * 10) / 10
+      : 0;
+
+    const fromCity = prompt('Город загрузки:', '');
+    if (!fromCity) return;
+
+    const toCity = prompt('Город выгрузки:', '');
+    if (!toCity) return;
+
+    const priceAmount = prompt('Цена перевозки ₽:', '50000');
+    if (!priceAmount) return;
+
+    const description = prompt('Описание груза:', 'Груз с карты') || 'Груз с карты';
+
+    fetch('/api/cargo/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from_city: fromCity,
+        to_city: toCity,
+        description: description,
+        price_amount: Number(priceAmount),
+        load_latitude: pickupPoint.lat,
+        load_longitude: pickupPoint.lng,
+        unload_latitude: dropoffPoint.lat,
+        unload_longitude: dropoffPoint.lng,
+        distance_km: distanceKm
+      })
+    })
+      .then(r => r.json())
+      .then(data => {
+        if (data.success) {
+          alert('✅ Груз создан #' + data.cargo_id + '\nСтавка: ' + data.rate_per_km + ' ₽/км');
+          loadCargo('');
+        } else {
+          alert('❌ Ошибка создания груза: ' + (data.error || 'unknown'));
+        }
+      })
+      .catch(err => {
+        alert('❌ Ошибка сети: ' + err.message);
+      });
   }
 
 });
+
+
+async function geocodeAddress(address) {
+  const url =
+    'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' +
+    encodeURIComponent(address);
+
+  const res = await fetch(url, {
+    headers: {
+      'Accept': 'application/json'
+    }
+  });
+
+  const data = await res.json();
+
+  if (!data.length) {
+    alert('Адрес не найден');
+    return null;
+  }
+
+  return {
+    lat: Number(data[0].lat),
+    lon: Number(data[0].lon),
+    name: data[0].display_name
+  };
+}
+
+async function findPickupAddress() {
+  const address = document.getElementById('pickupAddress').value.trim();
+
+  if (!address) {
+    alert('Введите адрес загрузки');
+    return;
+  }
+
+  const point = await geocodeAddress(address);
+  if (!point) return;
+
+  pickupPoint = L.latLng(point.lat, point.lon);
+
+  if (pickupMarker) map.removeLayer(pickupMarker);
+
+  pickupMarker = L.marker(pickupPoint)
+    .addTo(map)
+    .bindPopup('📦 Загрузка<br>' + point.name)
+    .openPopup();
+
+  map.setView(pickupPoint, 13);
+}
+
+async function findDropoffAddress() {
+  const address = document.getElementById('dropoffAddress').value.trim();
+
+  if (!address) {
+    alert('Введите адрес выгрузки');
+    return;
+  }
+
+  const point = await geocodeAddress(address);
+  if (!point) return;
+
+  dropoffPoint = L.latLng(point.lat, point.lon);
+
+  if (dropoffMarker) map.removeLayer(dropoffMarker);
+
+  dropoffMarker = L.marker(dropoffPoint)
+    .addTo(map)
+    .bindPopup('🏁 Выгрузка<br>' + point.name)
+    .openPopup();
+
+  if (pickupPoint) {
+    drawSelectedRoute();
+  }
+
+  map.setView(dropoffPoint, 13);
+}
+
+function drawSelectedRoute() {
+  if (!pickupPoint || !dropoffPoint) return;
+
+  if (routeLine) map.removeLayer(routeLine);
+
+  const url =
+    'https://router.project-osrm.org/route/v1/driving/' +
+    pickupPoint.lng + ',' + pickupPoint.lat + ';' +
+    dropoffPoint.lng + ',' + dropoffPoint.lat +
+    '?overview=full&geometries=geojson';
+
+  fetch(url)
+    .then(r => r.json())
+    .then(routeData => {
+      if (!routeData.routes || !routeData.routes.length) {
+        alert('Маршрут не найден');
+        return;
+      }
+
+      const coords = routeData.routes[0].geometry.coordinates.map(p => [p[1], p[0]]);
+
+      routeLine = L.polyline(coords, {
+        color: 'blue',
+        weight: 5
+      }).addTo(map);
+
+      map.fitBounds(routeLine.getBounds(), {
+        padding: [50, 50]
+      });
+    });
+}
+
+
+
+async function submitCreatedCargo() {
+
+  if (!pickupPoint || !dropoffPoint) {
+    alert('Сначала найдите адрес загрузки и выгрузки');
+    return;
+  }
+
+  const fromCity =
+    document.getElementById('pickupAddress').value.trim();
+
+  const toCity =
+    document.getElementById('dropoffAddress').value.trim();
+
+  const price =
+    Number(document.getElementById('cargoPrice').value || 0);
+
+  const description =
+    document.getElementById('cargoDescription').value.trim() || 'Груз с карты';
+
+  if (!fromCity || !toCity || !price) {
+    alert('Заполните адреса и цену');
+    return;
+  }
+
+  let distanceKm = 0;
+
+  if (routeLine) {
+    const points = routeLine.getLatLngs();
+
+    let meters = 0;
+
+    for (let i = 1; i < points.length; i++) {
+      meters += points[i - 1].distanceTo(points[i]);
+    }
+
+    distanceKm = Math.round((meters / 1000) * 10) / 10;
+  }
+
+  fetch('/api/cargo/create', {
+    method:'POST',
+    headers:{
+      'Content-Type':'application/json'
+    },
+    body:JSON.stringify({
+      from_city: fromCity,
+      to_city: toCity,
+      description: description,
+      price_amount: price,
+      load_latitude: pickupPoint.lat,
+      load_longitude: pickupPoint.lng,
+      unload_latitude: dropoffPoint.lat,
+      unload_longitude: dropoffPoint.lng,
+      distance_km: distanceKm
+    })
+  })
+  .then(r=>r.json())
+  .then(data=>{
+
+    if (data.success) {
+
+      alert(
+        '✅ Груз создан #' + data.cargo_id +
+        '\nРасстояние: ' + distanceKm + ' км' +
+        '\nСтавка: ' + data.rate_per_km + ' ₽/км'
+      );
+
+      document.getElementById('createCargoPanel').style.display='none';
+
+      loadCargo('');
+
+    } else {
+
+      alert('Ошибка создания груза: ' + (data.error || 'unknown'));
+
+    }
+
+  })
+  .catch(err => {
+    alert('Ошибка сети: ' + err.message);
+  });
+
+}
+
+
 function cargoIconByRate(rate) {
   const r = Number(rate || 0);
   let emoji = '🔴📦';
@@ -277,8 +585,16 @@ let cargoMarkers = [];
 let cargoLines = [];
 let truckMarkers = [];
 let trucksVisible = true;
+
+const cargoCluster = L.markerClusterGroup({
+  spiderfyOnMaxZoom: true,
+  showCoverageOnHover: false,
+  maxClusterRadius: 45
+});
+
+map.addLayer(cargoCluster);
 let lastCargoQuery = '';
-let autoRefreshEnabled = true;
+let autoRefreshEnabled = false;
 
 function clearCargoLines() {
   cargoLines.forEach(l => map.removeLayer(l));
@@ -315,6 +631,7 @@ function drawCargoRoute(c) {
 }
 
 function clearCargoMarkers() {
+  cargoCluster.clearLayers();
   cargoMarkers.forEach(m => map.removeLayer(m));
   cargoMarkers = [];
   clearCargoLines();
@@ -343,7 +660,6 @@ function loadCargo(query) {
       points.push([lat, lon]);
 
       const marker = L.marker([lat, lon], { icon: cargoIconByRate(c.rate_per_km) })
-        .addTo(map)
         .bindPopup(
           '<b>📦 Груз #' + c.id + '</b><br>' +
           '🚩 ' + c.from_city + ' → ' + c.to_city + '<br>' +
@@ -357,6 +673,7 @@ function loadCargo(query) {
         );
 
       cargoMarkers.push(marker);
+      cargoCluster.addLayer(marker);
       drawCargoRoute(c);
 
       const card = document.createElement('div');
@@ -441,6 +758,49 @@ function loadAvailableTrucks(cargoId) {
 
 
 
+
+
+function loadPersonalNearby() {
+  const tgId = document.getElementById('telegramIdInput').value.trim();
+
+  if (!tgId) {
+    alert('Введите Telegram ID');
+    return;
+  }
+
+  clearCargoMarkers();
+
+  fetch('/api/nearby?telegram_id=' + encodeURIComponent(tgId) + '&radius=500&profitability=profitable')
+    .then(r => r.json())
+    .then(data => {
+
+      if (!data.items) return;
+
+      document.getElementById('cargoCount').innerText =
+        'Выгодных для вас: ' + data.items.length;
+
+      data.items.forEach(c => {
+        const lat = parseFloat(c.load_latitude);
+        const lon = parseFloat(c.load_longitude);
+
+        if (!lat || !lon) return;
+
+        const marker = L.marker(
+          [lat, lon],
+          { icon: cargoIconByRate(c.rate_per_km) }
+        ).bindPopup(
+          '<b>🟢 Выгодный груз #' + c.id + '</b><br>' +
+          '🚩 ' + c.from_city + ' → ' + c.to_city + '<br>' +
+          '💰 ' + c.price_amount + ' RUB<br>' +
+          '💵 ' + c.rate_per_km + ' ₽/км'
+        );
+
+        cargoMarkers.push(marker);
+        cargoCluster.addLayer(marker);
+      });
+    });
+}
+
 function toggleAutoRefresh() {
   autoRefreshEnabled = !autoRefreshEnabled;
 
@@ -448,7 +808,7 @@ function toggleAutoRefresh() {
 
   if (btn) {
     btn.innerText = autoRefreshEnabled
-      ? '🔄 Авто ON'
+      ? '⏸ Авто OFF'
       : '⏸ Авто OFF';
   }
 }
@@ -506,5 +866,60 @@ fetch('/api/trucks/active')
     });
   });
 </script>
+
+<style>
+@media (max-width: 768px) {
+  #panel {
+    top: auto !important;
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 8px !important;
+    width: auto !important;
+    max-height: 36vh !important;
+    padding: 9px !important;
+    border-radius: 18px !important;
+    font-size: 12px !important;
+  }
+
+  #cargoList {
+    max-height: 17vh !important;
+    overflow: auto !important;
+  }
+
+  #panelHeader small:nth-of-type(n+3) {
+    display: none !important;
+  }
+
+  #telegramIdInput,
+  #autoRefreshBtn,
+  button[onclick="loadPersonalNearby()"],
+  button[onclick="loadAvailableTrucks()"],
+  button[onclick="toggleTrucks()"],
+  button[onclick="loadCargo('?min_rate=100')"] {
+    display: none !important;
+  }
+
+  .toolbar {
+    gap: 4px !important;
+    margin-top: 5px !important;
+  }
+
+  .btn {
+    padding: 6px 7px !important;
+    font-size: 11px !important;
+  }
+
+  .input {
+    padding: 6px !important;
+    font-size: 11px !important;
+  }
+
+  .cargo-card {
+    padding: 6px 0 !important;
+    font-size: 12px !important;
+  }
+}
+</style>
+
 </body>
 </html>
