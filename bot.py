@@ -1143,6 +1143,49 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ensure_user(update.effective_user)
 
+    if context.args and context.args[0].startswith("cargo_"):
+        try:
+            cargo_id = int(context.args[0].replace("cargo_", ""))
+        except ValueError:
+            cargo_id = None
+
+        if cargo_id:
+            cargo = await DB.fetchrow("""
+                SELECT
+                    id,
+                    from_city,
+                    to_city,
+                    description,
+                    price_amount,
+                    price_currency,
+                    distance_km,
+                    rate_per_km,
+                    status
+                FROM cargo
+                WHERE id=$1
+            """, cargo_id)
+
+            if not cargo:
+                await update.message.reply_text("❌ Груз не найден")
+                return
+
+            await update.message.reply_text(
+                (
+                    f"📦 Груз #{cargo['id']}\n"
+                    f"🚩 {cargo['from_city']} → {cargo['to_city']}\n"
+                    f"💰 {format_price(cargo['price_amount'])} {cargo['price_currency'] or 'RUB'}\n"
+                    f"📏 {cargo['distance_km'] or '-'} км\n"
+                    f"💵 {round(float(cargo['rate_per_km']), 2) if cargo['rate_per_km'] else 'нет'} ₽/км\n"
+                    f"📊 {human_status(cargo['status'])}\n"
+                    f"📝 {cargo['description'] or '-'}"
+                ),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{cargo_id}")],
+                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=92"))]
+                ])
+            )
+            return
+
     if context.args and context.args[0].startswith("user_"):
         try:
             target_user_id = int(context.args[0].replace("user_", ""))
