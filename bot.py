@@ -59,14 +59,9 @@ TRUCK_COMMENT = 24
 def main_reply_keyboard():
     return ReplyKeyboardMarkup(
         [
-            ["📦 Грузы", "📋 Мои грузы"],
-            ["📍 Рядом", "🟢 Выгодные"],
             ["🗺 Карта"],
-            ["⚙️ Настройки"],
-            ["➕ Груз", "🚚 Машина"],
-            ["📨 Отклики", "👤 Профиль"],
-            ["💳 Тарифы"],
-            ["🏠 Меню"]
+            ["🚚 Машина", "📨 Отклики"],
+            ["👤 Профиль"]
         ],
         resize_keyboard=True,
         one_time_keyboard=False,
@@ -517,6 +512,19 @@ async def truck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def truck_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    existing = await DB.fetchrow("""
+        SELECT id
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    if existing:
+        return await mytruck(update, context)
+
     context.user_data["truck"] = {}
 
     await update.message.reply_text(
@@ -795,19 +803,21 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await truck_start(update, context)
 
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("➕ Добавить машину", callback_data="truck_add")],
+        [InlineKeyboardButton("✏️ Изменить данные", callback_data="truck_add")],
+        [InlineKeyboardButton("📷 Фото машины", callback_data="truck_photo")],
         [InlineKeyboardButton("🔁 Обновить в поиске", callback_data=f"truck_refresh_{truck['id']}")],
         [InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby")],
-        [InlineKeyboardButton("❌ Убрать из поиска", callback_data=f"truck_hide_{truck['id']}")]
+        [InlineKeyboardButton("💰 Ставка ₽/км", callback_data="settings_rate")],
+        [InlineKeyboardButton("🙈 Скрыть из поиска", callback_data=f"truck_hide_{truck['id']}")]
     ])
 
     await update.message.reply_text(
         f"🚚 Моя машина #{truck['id']}\n\n"
-        f"🚛 Марка: {truck['brand'] or '-'}\n"
-        f"🔤 Модель: {truck['model'] or '-'}\n"
+        f"🚛 Марка: {truck['brand'] or 'Не указана'}\n"
+        f"🔤 Модель: {truck['model'] or 'Не указана'}\n"
         f"🔢 Номер: {truck['plate_number'] or '-'}\n"
-        f"📍 Город: {truck['current_city'] or '-'}\n"
-        f"📦 Кузов: {truck['body_type'] or '-'}\n"
+        f"📍 Город: {truck['current_city'] or 'Не указан'}\n"
+        f"📦 Кузов: {truck['body_type'] or 'Не указан'}\n"
         f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\n"
         f"📦 Объём: {truck['volume_m3'] or '-'} м³\n"
         f"🌐 Гео: {(str(round(float(truck['latitude']), 4)) + ', ' + str(round(float(truck['longitude']), 4))) if truck['latitude'] and truck['longitude'] else '-'}\n"
@@ -866,6 +876,47 @@ async def truck_add_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     return TRUCK_CITY
 
+
+
+
+async def truck_photo_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    context.user_data["awaiting_truck_photo"] = True
+
+    await q.message.reply_text(
+        "📷 Отправьте фото машины."
+    )
+
+
+async def truck_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get("awaiting_truck_photo"):
+        return
+
+    if not update.message.photo:
+        await update.message.reply_text("❌ Отправьте фото.")
+        return
+
+    context.user_data["awaiting_truck_photo"] = False
+
+    user_id = await ensure_user(update.effective_user)
+
+    file_id = update.message.photo[-1].file_id
+
+    await DB.execute("""
+        UPDATE trucks
+        SET photo_file_id=$1
+        WHERE id=(
+            SELECT id
+            FROM trucks
+            WHERE driver_id=$2
+            ORDER BY id DESC
+            LIMIT 1
+        )
+    """, file_id, user_id)
+
+    await update.message.reply_text("✅ Фото машины сохранено")
 
 async def truck_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -1220,8 +1271,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if truck:
                 text += (
                     f"🚚 Машина #{truck['id']}\n"
-                    f"📍 Город: {truck['current_city'] or '-'}\n"
-                    f"📦 Кузов: {truck['body_type'] or '-'}\n"
+                    f"📍 Город: {truck['current_city'] or 'Не указан'}\n"
+                    f"📦 Кузов: {truck['body_type'] or 'Не указан'}\n"
                     f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\n"
                     f"📦 Объём: {truck['volume_m3'] or '-'} м³\n"
                     f"📊 Статус: {human_status(truck['status'])}\n"
@@ -3695,7 +3746,7 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"🤝 Сделка #{deal_id} создана"
             ),
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🤝 Открыть сделку", callback_data="menu_deals")]
+                [InlineKeyboardButton("🤝 Открыть сделку", callback_data=f"deal_chat_{deal_id}")]
             ])
         )
         return
@@ -5895,7 +5946,10 @@ def main():
     )
 
     truck_handler = ConversationHandler(
-        entry_points=[CommandHandler("truck", truck_start)],
+        entry_points=[
+            CommandHandler("truck", truck_start),
+            MessageHandler(filters.Regex("^🚚 Машина$"), truck_start),
+        ],
         states={
             TRUCK_CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, truck_city)],
             TRUCK_BODY: [MessageHandler(filters.TEXT & ~filters.COMMAND, truck_body)],
@@ -6014,6 +6068,7 @@ def main():
     app.add_handler(CallbackQueryHandler(driver_profile_button, pattern="^driver_profile_"))
     app.add_handler(CallbackQueryHandler(truck_add_button, pattern="^truck_add$"))
     app.add_handler(CallbackQueryHandler(truck_refresh, pattern="^truck_refresh_"))
+    app.add_handler(CallbackQueryHandler(truck_photo_button, pattern="^truck_photo$"))
     app.add_handler(CallbackQueryHandler(truck_hide, pattern="^truck_hide_"))
     app.add_handler(CallbackQueryHandler(truck_deal_button, pattern="^truck_deal_"))
     app.add_handler(CallbackQueryHandler(create_deal_button, pattern="^create_deal_"))

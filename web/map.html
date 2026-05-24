@@ -700,7 +700,7 @@ function loadCargo(query) {
           '💵 ' + formatRate(c.rate_per_km) + '<br>' +
           '📝 ' + (c.description || '') + '<br>' +
           '<button class="btn" onclick="loadAvailableTrucks(' + c.id + ')">🔎 Попутные машины</button><br>' +
-          '<a class="btn" href="https://t.me/dalnoboybros_bot?start=cargo_' + c.id + '" target="_blank">🚛 Откликнуться</a><br>' +
+          '<button class="btn" onclick="respondToCargo(' + c.id + ')">🚛 Откликнуться</button><br>' +
           '<a class="btn" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lon + '" target="_blank">🧭 Маршрут</a>'
         );
 
@@ -716,7 +716,8 @@ function loadCargo(query) {
         '💰 ' + c.price_amount + ' ' + c.price_currency + '<br>' +
           '📏 ' + (c.distance_km || '-') + ' км<br>' +
           '💵 ' + formatRate(c.rate_per_km) + '<br>' +
-        '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4);
+        '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4) + '<br>' +
+        '<button class="btn btn-green" onclick="event.stopPropagation(); respondToCargo(' + c.id + ')">🚛 Откликнуться</button>';
 
       card.onmouseenter = () => {
         marker.openPopup();
@@ -841,6 +842,68 @@ function loadPersonalNearby() {
         cargoCluster.addLayer(marker);
       });
     });
+}
+
+
+
+function getTelegramUserId() {
+  if (telegramUserId) return telegramUserId;
+
+  if (window.Telegram && Telegram.WebApp) {
+    const tgUser = Telegram.WebApp.initDataUnsafe?.user;
+    if (tgUser && tgUser.id) return tgUser.id;
+  }
+
+  return null;
+}
+
+async function respondToCargo(cargoId) {
+  const tgId = getTelegramUserId();
+
+  if (!tgId) {
+    alert('Не удалось определить Telegram ID. Откройте карту через Telegram.');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/respond', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        telegram_id: tgId,
+        cargo_id: cargoId
+      })
+    });
+
+    const data = await res.json();
+
+    if (data.success && data.already) {
+      alert('⚠️ Вы уже откликались на этот груз');
+      return;
+    }
+
+    if (data.success) {
+      alert('✅ Отклик отправлен');
+      return;
+    }
+
+    if (data.error === 'truck_not_found') {
+      alert('❌ Сначала добавьте машину в боте');
+      return;
+    }
+
+    if (data.error === 'user_not_found') {
+      alert('❌ Пользователь не найден. Нажмите /start в боте.');
+      return;
+    }
+
+    alert('❌ Ошибка отклика: ' + (data.error || 'unknown'));
+
+  } catch (e) {
+    alert('❌ Ошибка сети: ' + e.message);
+  }
 }
 
 function toggleAutoRefresh() {

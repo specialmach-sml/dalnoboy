@@ -1,5 +1,7 @@
 require("dotenv").config({ path: "../.env" });
 
+const BOT_TOKEN = process.env.BOT_TOKEN;
+
 const express = require("express");
 const cors = require("cors");
 const { Pool } = require("pg");
@@ -749,6 +751,154 @@ app.get("/api/matching/open-cargo", async (req, res) => {
   } catch (e) {
     console.error(e);
     res.status(500).json({ success:false, error:e.message });
+  }
+});
+
+
+app.post("/api/respond", async (req, res) => {
+  try {
+    const telegramId = req.body.telegram_id;
+    const cargoId = Number(req.body.cargo_id);
+
+    if (!telegramId || !cargoId) {
+      return res.status(400).json({
+        success: false,
+        error: "telegram_id_and_cargo_id_required"
+      });
+    }
+
+    const userResult = await pool.query(`
+      SELECT id, full_name
+      FROM users
+      WHERE telegram_id=$1
+      LIMIT 1
+    `, [telegramId]);
+
+    if (!userResult.rows.length) {
+      return res.status(404).json({
+        success: false,
+        error: "user_not_found"
+      });
+    }
+
+    const user = userResult.rows[0];
+
+    const truckResult = await pool.query(`
+      SELECT id
+      FROM trucks
+      WHERE driver_id=$1
+      ORDER BY id DESC
+      LIMIT 1
+    `, [user.id]);
+
+    if (!truckResult.rows.length) {
+      return res.status(400).json({
+        success: false,
+        error: "truck_not_found"
+      });
+    }
+
+    const truck = truckResult.rows[0];
+
+    const existing = await pool.query(`
+      SELECT id
+      FROM responses
+      WHERE cargo_id=$1 AND driver_id=$2
+      LIMIT 1
+    `, [cargoId, user.id]);
+
+    if (existing.rows.length) {
+      return res.json({
+        success: true,
+        already: true,
+        response_id: existing.rows[0].id
+      });
+    }
+
+    const inserted = await pool.query(`
+      INSERT INTO responses (
+        cargo_id,
+        truck_id,
+        driver_id,
+        message,
+        status
+      )
+      VALUES ($1,$2,$3,$4,'pending')
+      RETURNING id
+    `, [
+      cargoId,
+      truck.id,
+      user.id,
+      `Отклик с карты от ${user.full_name || "водителя"}`
+    ]);
+
+    const responseId = inserted.rows[0].id;
+
+    const cargoOwner = await pool.query(`
+      SELECT
+        u.telegram_id,
+        c.from_city,
+        c.to_city
+      FROM cargo c
+      LEFT JOIN users u ON u.id = c.created_by
+      WHERE c.id=$1
+      LIMIT 1
+    `, [cargoId]);
+
+    if (cargoOwner.rows.length && cargoOwner.rows[0].telegram_id) {
+
+      const owner = cargoOwner.rows[0];
+
+      try {
+
+        await fetch(
+          `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
+          {
+            method:'POST',
+            headers:{
+              'Content-Type':'application/json'
+            },
+            body:JSON.stringify({
+              chat_id: owner.telegram_id,
+              text:
+                `📨 Новый отклик с карты\n\n` +
+                `🚚 Водитель: ${user.full_name || 'Водитель'}\n` +
+                `📦 Груз #${cargoId}\n` +
+                `🚩 ${owner.from_city} → ${owner.to_city}`,
+              reply_markup:{
+                inline_keyboard:[
+                  [
+                    {
+                      text:'✅ Принять',
+                      callback_data:`accept_${responseId}`
+                    },
+                    {
+                      text:'❌ Отклонить',
+                      callback_data:`reject_${responseId}`
+                    }
+                  ]
+                ]
+              }
+            })
+          }
+        );
+
+      } catch(e) {
+        console.error("telegram notify error", e);
+      }
+    }
+
+    res.json({
+      success: true,
+      response_id: responseId
+    });
+
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      error: e.message
+    });
   }
 });
 
