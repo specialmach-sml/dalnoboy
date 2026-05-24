@@ -792,7 +792,8 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             plate_number,
             latitude,
             longitude,
-            location_updated_at
+            location_updated_at,
+            photo_file_id
         FROM trucks
         WHERE driver_id=$1
         ORDER BY id DESC
@@ -811,7 +812,7 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🙈 Скрыть из поиска", callback_data=f"truck_hide_{truck['id']}")]
     ])
 
-    await update.message.reply_text(
+    text = (
         f"🚚 Моя машина #{truck['id']}\n\n"
         f"🚛 Марка: {truck['brand'] or 'Не указана'}\n"
         f"🔤 Модель: {truck['model'] or 'Не указана'}\n"
@@ -823,9 +824,20 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"🌐 Гео: {(str(round(float(truck['latitude']), 4)) + ', ' + str(round(float(truck['longitude']), 4))) if truck['latitude'] and truck['longitude'] else '-'}\n"
         f"🕒 Гео обновлено: {truck['location_updated_at'] or '-'}\n"
         f"📝 Комментарий: {truck['comment'] or '-'}\n"
-        f"📊 Статус: {human_status(truck['status'])}",
-        reply_markup=kb
+        f"📊 Статус: {human_status(truck['status'])}"
     )
+
+    if truck.get("photo_file_id"):
+        await update.message.reply_photo(
+            photo=truck["photo_file_id"],
+            caption=text,
+            reply_markup=kb
+        )
+    else:
+        await update.message.reply_text(
+            text,
+            reply_markup=kb
+        )
 
 
 
@@ -917,6 +929,7 @@ async def truck_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE
     """, file_id, user_id)
 
     await update.message.reply_text("✅ Фото машины сохранено")
+    await mytruck(update, context)
 
 async def truck_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -5967,6 +5980,7 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
+    app.add_handler(MessageHandler(filters.PHOTO, truck_photo_message))
     app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
