@@ -793,7 +793,8 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             latitude,
             longitude,
             location_updated_at,
-            photo_file_id
+            photo_file_id,
+            min_rate_per_km
         FROM trucks
         WHERE driver_id=$1
         ORDER BY id DESC
@@ -804,9 +805,17 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await truck_start(update, context)
 
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("✏️ Изменить данные", callback_data="truck_add")],
+        [
+            InlineKeyboardButton("✏️ Марка", callback_data="truck_edit_brand"),
+            InlineKeyboardButton("✏️ Модель", callback_data="truck_edit_model")
+        ],
+        [
+            InlineKeyboardButton("✏️ Номер", callback_data="truck_edit_plate_number"),
+            InlineKeyboardButton("📍 Город", callback_data="truck_edit_current_city")
+        ],
         [InlineKeyboardButton("📷 Фото машины", callback_data="truck_photo")],
         [InlineKeyboardButton("🔁 Обновить в поиске", callback_data=f"truck_refresh_{truck['id']}")],
+        [InlineKeyboardButton("📍 Обновить GEO", callback_data="truck_geo")],
         [InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby")],
         [InlineKeyboardButton("💰 Ставка ₽/км", callback_data="settings_rate")],
         [InlineKeyboardButton("🙈 Скрыть из поиска", callback_data=f"truck_hide_{truck['id']}")]
@@ -821,6 +830,7 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📦 Кузов: {truck['body_type'] or 'Не указан'}\n"
         f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\n"
         f"📦 Объём: {truck['volume_m3'] or '-'} м³\n"
+        f"💰 Мин. ставка: {truck['min_rate_per_km'] or '-'} ₽/км\n"
         f"🌐 Гео: {(str(round(float(truck['latitude']), 4)) + ', ' + str(round(float(truck['longitude']), 4))) if truck['latitude'] and truck['longitude'] else '-'}\n"
         f"🕒 Гео обновлено: {truck['location_updated_at'] or '-'}\n"
         f"📝 Комментарий: {truck['comment'] or '-'}\n"
@@ -930,6 +940,121 @@ async def truck_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     await update.message.reply_text("✅ Фото машины сохранено")
     await mytruck(update, context)
+
+
+async def truck_edit_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    field = q.data.replace("truck_edit_", "")
+
+    labels = {
+        "brand": "марку машины",
+        "model": "модель машины",
+        "plate_number": "госномер",
+        "current_city": "текущий город"
+    }
+
+    if field not in labels:
+        await q.message.reply_text("❌ Неизвестное поле")
+        return
+
+    context.user_data["truck_edit_field"] = field
+
+    await q.message.reply_text(
+        f"✏️ Введите {labels[field]}:"
+    )
+
+
+async def truck_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get("awaiting_rate"):
+        context.user_data["awaiting_rate"] = False
+
+        try:
+            rate = float(update.message.text.strip().replace(",", "."))
+        except ValueError:
+            await update.message.reply_text("❌ Введите число, например: 35")
+            context.user_data["awaiting_rate"] = True
+            return
+
+        user_id = await ensure_user(update.effective_user)
+
+        await DB.execute("""
+            UPDATE trucks
+            SET min_rate_per_km=$1
+            WHERE id=(
+                SELECT id
+                FROM trucks
+                WHERE driver_id=$2
+                ORDER BY id DESC
+                LIMIT 1
+            )
+        """, rate, user_id)
+
+        await update.message.reply_text(f"✅ Минимальная ставка сохранена: {rate} ₽/км")
+        await mytruck(update, context)
+        return
+
+    field = context.user_data.get("truck_edit_field")
+
+    if not field:
+        return
+
+    value = update.message.text.strip()
+
+    if not value:
+        await update.message.reply_text("❌ Значение не может быть пустым")
+        return
+
+    context.user_data["truck_edit_field"] = None
+
+    user_id = await ensure_user(update.effective_user)
+
+    allowed = {
+        "brand": "brand",
+        "model": "model",
+        "plate_number": "plate_number",
+        "current_city": "current_city"
+    }
+
+    column = allowed.get(field)
+
+    if not column:
+        await update.message.reply_text("❌ Поле не разрешено")
+        return
+
+    await DB.execute(f"""
+        UPDATE trucks
+        SET {column}=$1
+        WHERE id=(
+            SELECT id
+            FROM trucks
+            WHERE driver_id=$2
+            ORDER BY id DESC
+            LIMIT 1
+        )
+    """, value, user_id)
+
+    await update.message.reply_text("✅ Данные обновлены")
+    await mytruck(update, context)
+
+
+
+async def truck_geo_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    kb = ReplyKeyboardMarkup(
+        [[KeyboardButton("📍 Отправить GEO", request_location=True)]],
+        resize_keyboard=True,
+        one_time_keyboard=True
+    )
+
+    await q.message.reply_text(
+        "📍 Отправьте текущее местоположение машины.",
+        reply_markup=kb
+    )
+
 
 async def truck_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -1288,6 +1413,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📦 Кузов: {truck['body_type'] or 'Не указан'}\n"
                     f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\n"
                     f"📦 Объём: {truck['volume_m3'] or '-'} м³\n"
+        f"💰 Мин. ставка: {truck['min_rate_per_km'] or '-'} ₽/км\n"
                     f"📊 Статус: {human_status(truck['status'])}\n"
                     f"🕒 GEO: {truck['location_updated_at'] or '-'}"
                 )
@@ -4745,7 +4871,7 @@ async def automatches(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📦 Груз #{cargo_id}\n"
                 f"🚩 {m['from_city']} → {m['to_city']}\n"
                 f"💰 {m['price_amount']} ₽\n"
-                f"💵 {m['rate_per_km']} ₽/км\n\n"
+                f"💵 {round(float(m['rate_per_km']), 2) if m['rate_per_km'] else 'ставка не указана'} ₽/км\n\n"
                 f"🚚 Машина #{truck_id}\n"
                 f"👤 {m['full_name']}\n"
                 f"📦 Свободно: {m['available_tons']} т / {m['available_volume_m3']} м³\n"
@@ -4792,7 +4918,7 @@ async def pushmatches(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"📦 Груз #{m['cargo_id']}\n"
                 f"🚩 {m['from_city']} → {m['to_city']}\n"
                 f"💰 {m['price_amount']} ₽\n"
-                f"💵 {m['rate_per_km']} ₽/км\n\n"
+                f"💵 {round(float(m['rate_per_km']), 2) if m['rate_per_km'] else 'ставка не указана'} ₽/км\n\n"
                 f"🚚 Машина #{m['truck_id']}\n"
                 f"👤 {m['full_name']}\n"
                 f"📦 Свободно: {m['available_tons']} т / {m['available_volume_m3']} м³\n"
@@ -4897,7 +5023,7 @@ async def nearby_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🚩 {r['from_city']} → {r['to_city']}\n"
             f"💰 {format_price(r['price_amount'])} RUB\n"
             f"📍 {r['distance_km']} км до загрузки\n"
-            f"💵 {r['rate_per_km']} ₽/км\n"
+            f"💵 {round(float(r['rate_per_km']), 2) if r['rate_per_km'] else 'ставка не указана'} ₽/км\n"
             f"📈 +{r['profit_delta']} ₽/км к вашей минималке\n"
             f"📝 {r['description'] or '-'}",
             reply_markup=InlineKeyboardMarkup([
@@ -5982,6 +6108,7 @@ def main():
 
     app.add_handler(MessageHandler(filters.PHOTO, truck_photo_message))
     app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, truck_edit_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cargo", cargo))
@@ -6080,7 +6207,9 @@ def main():
     app.add_handler(CallbackQueryHandler(sub_on, pattern="^sub_on_"))
     app.add_handler(CallbackQueryHandler(sub_off, pattern="^sub_off_"))
     app.add_handler(CallbackQueryHandler(driver_profile_button, pattern="^driver_profile_"))
+    app.add_handler(CallbackQueryHandler(truck_edit_button, pattern="^truck_edit_"))
     app.add_handler(CallbackQueryHandler(truck_add_button, pattern="^truck_add$"))
+    app.add_handler(CallbackQueryHandler(truck_geo_button, pattern="^truck_geo$"))
     app.add_handler(CallbackQueryHandler(truck_refresh, pattern="^truck_refresh_"))
     app.add_handler(CallbackQueryHandler(truck_photo_button, pattern="^truck_photo$"))
     app.add_handler(CallbackQueryHandler(truck_hide, pattern="^truck_hide_"))
