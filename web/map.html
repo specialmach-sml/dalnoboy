@@ -906,6 +906,50 @@ async function respondToCargo(cargoId) {
   }
 }
 
+
+
+function autoUpdateTruckGeo() {
+  const tgId = getTelegramUserId ? getTelegramUserId() : telegramUserId;
+
+  if (!tgId || !navigator.geolocation) {
+    return;
+  }
+
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      const lat = pos.coords.latitude;
+      const lon = pos.coords.longitude;
+
+      fetch('/api/truck/location', {
+        method:'POST',
+        headers:{ 'Content-Type':'application/json' },
+        body:JSON.stringify({
+          telegram_id: tgId,
+          lat: lat,
+          lon: lon
+        })
+      })
+      .then(r=>r.json())
+      .then(data=>{
+        if (data.success) {
+          console.log('truck geo updated');
+        }
+      });
+    },
+    err => {
+      console.log('geo denied', err.message);
+    },
+    {
+      enableHighAccuracy:true,
+      timeout:10000,
+      maximumAge:60000
+    }
+  );
+}
+
+setTimeout(autoUpdateTruckGeo, 1200);
+
+
 function toggleAutoRefresh() {
   autoRefreshEnabled = !autoRefreshEnabled;
 

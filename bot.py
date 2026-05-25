@@ -4957,13 +4957,11 @@ async def push_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
 
         await update.message.reply_text(
-            f"🟢 Новый выгодный груз #{r['id']}\n"
+            f"🟢 Новый груз рядом\n\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
-            f"💰 {format_price(r['price_amount'])} RUB\n"
-            f"💵 {round(float(r['rate_per_km'] or 0), 2)} ₽/км\n"
-            f"📈 +{round(float(r['profit_delta'] or 0), 2)} ₽/км к вашей минималке\n"
+            f"💰 {format_price(r['price_amount'])} ₽\n"
             f"📍 {r['distance_km']} км до загрузки\n"
-            f"📝 {r['description'] or '-'}",
+            f"💵 {round(float(r['rate_per_km']), 2) if r['rate_per_km'] else 'ставка не указана'} ₽/км",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
             ])
@@ -5019,13 +5017,11 @@ async def nearby_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for r in data["items"][:20]:
         await update.message.reply_text(
-            f"🟢 Выгодный груз #{r['id']}\n"
+            f"🟢 Выгодный груз\n\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
-            f"💰 {format_price(r['price_amount'])} RUB\n"
+            f"💰 {format_price(r['price_amount'])} ₽\n"
             f"📍 {r['distance_km']} км до загрузки\n"
-            f"💵 {round(float(r['rate_per_km']), 2) if r['rate_per_km'] else 'ставка не указана'} ₽/км\n"
-            f"📈 +{r['profit_delta']} ₽/км к вашей минималке\n"
-            f"📝 {r['description'] or '-'}",
+            f"💵 {round(float(r['rate_per_km']), 2) if r['rate_per_km'] else 'ставка не указана'} ₽/км",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
             ])
@@ -5163,13 +5159,11 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
         }.get(owner_plan, owner_plan.upper())
 
         await update.message.reply_text(
-            f"📦 Груз #{r['id']}\n"
-            f"🏷 {owner_badge}\n"
+            f"📦 Груз рядом\n\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
-            f"💰 {format_price(r['price_amount'])} RUB\n"
+            f"💰 {format_price(r['price_amount'])} ₽\n"
             f"📍 {dist} км до загрузки\n"
-            f"{econ}\n"
-            f"📝 {r['description'] or '-'}",
+            f"{econ}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
             ])

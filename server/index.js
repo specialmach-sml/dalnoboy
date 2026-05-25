@@ -755,6 +755,54 @@ app.get("/api/matching/open-cargo", async (req, res) => {
 });
 
 
+
+app.post("/api/truck/location", async (req, res) => {
+  try {
+    const telegramId = req.body.telegram_id;
+    const lat = Number(req.body.lat);
+    const lon = Number(req.body.lon);
+
+    if (!telegramId || !lat || !lon) {
+      return res.status(400).json({ success:false, error:"telegram_id_lat_lon_required" });
+    }
+
+    const userResult = await pool.query(`
+      SELECT id FROM users WHERE telegram_id=$1 LIMIT 1
+    `, [telegramId]);
+
+    if (!userResult.rows.length) {
+      return res.status(404).json({ success:false, error:"user_not_found" });
+    }
+
+    const userId = userResult.rows[0].id;
+
+    const truckResult = await pool.query(`
+      UPDATE trucks
+      SET latitude=$1,
+          longitude=$2,
+          location_updated_at=now(),
+          status='active'
+      WHERE id=(
+        SELECT id FROM trucks
+        WHERE driver_id=$3
+        ORDER BY id DESC
+        LIMIT 1
+      )
+      RETURNING id
+    `, [lat, lon, userId]);
+
+    if (!truckResult.rows.length) {
+      return res.status(404).json({ success:false, error:"truck_not_found" });
+    }
+
+    res.json({ success:true, truck_id: truckResult.rows[0].id });
+
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ success:false, error:e.message });
+  }
+});
+
 app.post("/api/respond", async (req, res) => {
   try {
     const telegramId = req.body.telegram_id;
