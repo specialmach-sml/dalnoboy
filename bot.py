@@ -732,7 +732,12 @@ async def truck_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         text += f"🔎 Открыть: /find {data['current_city']}"
 
-        await update.message.reply_text(text)
+        await update.message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup([
+            [InlineKeyboardButton("📞 Добавить / изменить телефон", callback_data="profile_phone")]
+        ])
+    )
 
     subs = await DB.fetch("""
         SELECT DISTINCT u.telegram_id
@@ -815,7 +820,7 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ],
         [InlineKeyboardButton("📷 Фото машины", callback_data="truck_photo")],
         [InlineKeyboardButton("🔁 Обновить в поиске", callback_data=f"truck_refresh_{truck['id']}")],
-        [InlineKeyboardButton("📍 Обновить GEO", callback_data="truck_geo")],
+        [InlineKeyboardButton("📍 Обновить GEO вручную", callback_data="truck_geo")],
         [InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby")],
         [InlineKeyboardButton("💰 Ставка ₽/км", callback_data="settings_rate")],
         [InlineKeyboardButton("🙈 Скрыть из поиска", callback_data=f"truck_hide_{truck['id']}")]
@@ -831,10 +836,10 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\n"
         f"📦 Объём: {truck['volume_m3'] or '-'} м³\n"
         f"💰 Мин. ставка: {truck['min_rate_per_km'] or '-'} ₽/км\n"
-        f"🌐 Гео: {(str(round(float(truck['latitude']), 4)) + ', ' + str(round(float(truck['longitude']), 4))) if truck['latitude'] and truck['longitude'] else '-'}\n"
-        f"🕒 Гео обновлено: {truck['location_updated_at'] or '-'}\n"
-        f"📝 Комментарий: {truck['comment'] or '-'}\n"
-        f"📊 Статус: {human_status(truck['status'])}"
+        f"🌐 GEO: {(str(round(float(truck['latitude']), 4)) + ', ' + str(round(float(truck['longitude']), 4))) if truck['latitude'] and truck['longitude'] else 'не найдено'}\n"
+        f"🟢 Гео активно\n"
+        f"📝 {truck['comment'] or 'Комментариев нет'}\n"
+        f"{human_status(truck['status'])}"
     )
 
     if truck.get("photo_file_id"):
@@ -1222,7 +1227,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
     user = await DB.fetchrow("""
-        SELECT full_name, role, verified, plan_type, plan_expires_at, created_at
+        SELECT full_name, role, verified, plan_type, plan_expires_at, created_at, phone
         FROM users
         WHERE id=$1
     """, user_id)
@@ -1233,6 +1238,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     plan_type = user["plan_type"] if user and user["plan_type"] else "free"
     plan_expires_at = user["plan_expires_at"] if user else None
     created_at = user["created_at"] if user else None
+    phone = user["phone"] if user and user["phone"] else None
 
     plan_badges = {
         "company": "⭐ COMPANY",
@@ -1310,6 +1316,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
         + "\n"
         f"⭐ Рейтинг: {stats['avg_score'] or 'нет оценок'}\n"
         f"💬 Отзывов: {stats['reviews_count']}\n"
+        f"📞 Телефон: {phone or 'не указан'}\n"
         f"🚚 Машин: {trucks_count}\n"
         f"🤝 Сделок всего: {deals_total}\n"
         f"🚚 Активных сделок: {deals_active}\n"
@@ -1328,6 +1335,39 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text)
 
+
+
+
+async def profile_phone_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    context.user_data["awaiting_phone"] = True
+
+    await q.message.reply_text(
+        "📞 Введите телефон для связи\n\nНапример: +79991234567"
+    )
+
+
+async def profile_phone_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get("awaiting_phone"):
+        return
+
+    phone = update.message.text.strip()
+
+    context.user_data["awaiting_phone"] = False
+
+    user_id = await ensure_user(update.effective_user)
+
+    await DB.execute("""
+        UPDATE users
+        SET phone=$1
+        WHERE id=$2
+    """, phone, user_id)
+
+    await update.message.reply_text("✅ Телефон сохранён")
+
+    await profile(update, context)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await ensure_user(update.effective_user)
