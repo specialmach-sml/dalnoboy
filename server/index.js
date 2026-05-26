@@ -3,10 +3,14 @@ require("dotenv").config({ path: "../.env" });
 const BOT_TOKEN = process.env.BOT_TOKEN;
 
 const express = require("express");
+const http = require("http");
 const cors = require("cors");
 const { Pool } = require("pg");
+const { Server } = require("socket.io");
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
 app.use(cors());
 app.use(express.json());
 
@@ -801,6 +805,14 @@ app.post("/api/truck/location", async (req, res) => {
       return res.status(404).json({ success:false, error:"truck_not_found" });
     }
 
+    io.emit("truck_location_updated", {
+      truck_id: truckResult.rows[0].id,
+      telegram_id: telegramId,
+      latitude: lat,
+      longitude: lon,
+      updated_at: new Date().toISOString()
+    });
+
     res.json({ success:true, truck_id: truckResult.rows[0].id });
 
   } catch(e) {
@@ -964,6 +976,10 @@ app.get("/map", (req, res) => {
   res.sendFile("/root/dalnoboy/web/map.html");
 });
 
-app.listen(5000, "0.0.0.0", () => {
+io.on("connection", (socket) => {
+  console.log("Socket connected:", socket.id);
+});
+
+server.listen(5000, "0.0.0.0", () => {
   console.log("Server started: http://0.0.0.0:5000");
 });
