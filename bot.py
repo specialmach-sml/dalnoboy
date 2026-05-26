@@ -1,4 +1,5 @@
 import aiohttp
+import asyncio
 import logging
 import shutil
 import subprocess
@@ -1196,7 +1197,6 @@ async def plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def matching(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import aiohttp
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -4881,7 +4881,6 @@ async def setrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def automatches(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import aiohttp
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -4937,7 +4936,6 @@ async def automatches(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def pushmatches(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    import aiohttp
 
     try:
         async with aiohttp.ClientSession() as session:
@@ -5525,6 +5523,94 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await help_cmd(update, context)
 
 
+async def auto_profit_loop(app: Application):
+    await asyncio.sleep(20)
+
+    while True:
+        try:
+            rows = await DB.fetch("""
+                SELECT DISTINCT ON (u.id)
+                    u.id AS user_id,
+                    u.telegram_id,
+                    COALESCE(t.search_radius_km, 500) AS radius
+                FROM users u
+                JOIN trucks t ON t.driver_id = u.id
+                WHERE
+                    u.telegram_id IS NOT NULL
+                    AND t.status='active'
+                    AND t.latitude IS NOT NULL
+                    AND t.longitude IS NOT NULL
+                    AND t.location_updated_at > now() - interval '24 hours'
+                ORDER BY u.id, t.id DESC
+                LIMIT 200
+            """)
+
+            total_sent = 0
+
+            async with aiohttp.ClientSession() as session:
+                for user in rows:
+                    try:
+                        url = (
+                            f"http://localhost:5000/api/nearby"
+                            f"?telegram_id={user['telegram_id']}"
+                            f"&radius={int(user['radius'] or 500)}"
+                            f"&profitability=profitable"
+                        )
+
+                        async with session.get(url, timeout=15) as resp:
+                            data = await resp.json()
+
+                        sent_for_user = 0
+
+                        for r in data.get("items", [])[:5]:
+                            exists = await DB.fetchrow("""
+                                SELECT id
+                                FROM profit_notifications
+                                WHERE user_id=$1 AND cargo_id=$2
+                            """, user["user_id"], int(r["id"]))
+
+                            if exists:
+                                continue
+
+                            text = (
+                                f"🟢 Новый выгодный груз рядом\n\n"
+                                f"🚩 {r['from_city']} → {r['to_city']}\n"
+                                f"💰 {format_price(r['price_amount'])} ₽\n"
+                                f"📍 {r['distance_km']} км до загрузки\n"
+                                f"💵 {round(float(r['rate_per_km']), 2) if r.get('rate_per_km') else 'ставка не указана'} ₽/км"
+                            )
+
+                            await app.bot.send_message(
+                                chat_id=user["telegram_id"],
+                                text=text,
+                                reply_markup=InlineKeyboardMarkup([
+                                    [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
+                                ])
+                            )
+
+                            await DB.execute("""
+                                INSERT INTO profit_notifications (user_id, cargo_id)
+                                VALUES ($1,$2)
+                                ON CONFLICT (user_id, cargo_id) DO NOTHING
+                            """, user["user_id"], int(r["id"]))
+
+                            sent_for_user += 1
+                            total_sent += 1
+
+                            if sent_for_user >= 3:
+                                break
+
+                    except Exception as e:
+                        logging.warning(f"auto_profit_loop user failed: {e}")
+
+            logging.info(f"auto_profit_loop sent: {total_sent}")
+
+        except Exception as e:
+            logging.warning(f"auto_profit_loop failed: {e}")
+
+        await asyncio.sleep(600)
+
+
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logging.exception("BOT ERROR", exc_info=context.error)
 
@@ -5549,6 +5635,9 @@ async def post_init(app: Application):
         await notify_expiring_subscriptions(app)
     except Exception as e:
         logging.warning(f"notify_expiring_subscriptions failed: {e}")
+
+    app.create_task(auto_profit_loop(app))
+    logging.info("auto_profit_loop started")
 
 
 async def notify_expiring_subscriptions(app: Application):
