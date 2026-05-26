@@ -621,7 +621,13 @@ function truckIconByFreshness(updatedAt) {
   const updated = updatedAt ? new Date(updatedAt) : null;
   const hours = updated ? (Date.now() - updated.getTime()) / 1000 / 3600 : 999;
 
-  const emoji = hours <= 2 ? '🟢🚚' : '🟡🚚';
+  let emoji = '⚫🚚';
+
+  if (hours <= 0.5) {
+    emoji = '🟢🚚';
+  } else if (hours <= 2) {
+    emoji = '🟡🚚';
+  }
 
   return L.divIcon({
     html: '<div style="font-size:28px">' + emoji + '</div>',
@@ -1133,6 +1139,10 @@ function loadActiveTrucks() {
 
         const updatedAt = t.location_updated_at || null;
         const updatedText = updatedAt ? new Date(updatedAt).toLocaleString() : '-';
+        const statusText =
+          t.online_status === 'online' ? '🟢 online' :
+          t.online_status === 'recent' ? '🟡 недавно' :
+          '⚫ offline';
 
         const contactLine =
           '💬 <a class="btn" href="https://t.me/dalnoboybros_bot?start=user_' + t.driver_id + '" target="_blank">Профиль</a><br>';
@@ -1146,6 +1156,7 @@ function loadActiveTrucks() {
             '<b>🚚 Машина #' + t.id + '</b><br>' +
             '👤 ' + (t.full_name || 'Водитель') + '<br>' +
             contactLine +
+            '📡 Статус: ' + statusText + '<br>' +
             '🕒 GEO: ' + updatedText + '<br>' +
             '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4)
           );

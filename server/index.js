@@ -187,6 +187,11 @@ app.get("/api/trucks/active", async (req, res) => {
         t.latitude,
         t.longitude,
         t.location_updated_at,
+        CASE
+          WHEN t.location_updated_at > now() - interval '30 minutes' THEN 'online'
+          WHEN t.location_updated_at > now() - interval '2 hours' THEN 'recent'
+          ELSE 'offline'
+        END AS online_status,
         u.full_name,
         u.telegram_username
       FROM trucks t
@@ -531,6 +536,11 @@ app.get("/api/trucks/available", async (req, res) => {
         t.latitude,
         t.longitude,
         t.location_updated_at,
+        CASE
+          WHEN t.location_updated_at > now() - interval '30 minutes' THEN 'online'
+          WHEN t.location_updated_at > now() - interval '2 hours' THEN 'recent'
+          ELSE 'offline'
+        END AS online_status,
         u.full_name,
         COALESCE(u.plan_type, 'free') AS plan_type,
         (
@@ -611,6 +621,11 @@ app.get("/api/trucks/available", async (req, res) => {
         t.latitude,
         t.longitude,
         t.location_updated_at,
+        CASE
+          WHEN t.location_updated_at > now() - interval '30 minutes' THEN 'online'
+          WHEN t.location_updated_at > now() - interval '2 hours' THEN 'recent'
+          ELSE 'offline'
+        END AS online_status,
         u.full_name,
         COALESCE(u.plan_type, 'free') AS plan_type,
         (
