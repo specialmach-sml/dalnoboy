@@ -895,14 +895,28 @@ function loadAvailableTrucks(cargoId) {
 
         const card = document.createElement('div');
         card.className = 'cargo-card';
+        const score = Number(t.match_score || 0);
+
+        const status =
+          t.online_status === 'online' ? '🟢 online' :
+          t.online_status === 'recent' ? '🟡 недавно' :
+          '⚫ offline';
+
+        const topMatch = score >= 80;
+
+        card.style.border = topMatch
+          ? '2px solid #22c55e'
+          : '1px solid rgba(255,255,255,.08)';
+
         card.innerHTML =
-          '<b>🚚 Машина #' + t.id + '</b><br>' +
+          '<b>' + (topMatch ? '🔥 ' : '') + '🚚 Машина #' + t.id + '</b><br>' +
           '👤 ' + (t.full_name || 'Водитель') + '<br>' +
+          '📡 ' + status + '<br>' +
           '📍 До загрузки: ' + (t.distance_km || '-') + ' км<br>' +
           '📦 ' + (t.body_type || '-') + ' · ' + (t.capacity_tons || '-') + ' т / ' + (t.volume_m3 || '-') + ' м³<br>' +
           '💰 Мин. ставка: ' + (t.min_rate_per_km || '-') + ' ₽/км<br>' +
-          '🔥 Совпадение: ' + (t.match_score || '-') + '%<br>' +
-          '🟢 GEO: ' + (t.location_updated_at ? 'активно' : 'нет');
+          '🔥 Совпадение: ' + score + '%<br>' +
+          '<a class="btn" href="https://t.me/dalnoboybros_bot?start=user_' + t.driver_id + '" target="_blank">💬 Профиль</a>';
 
         card.onclick = () => {
           map.setView([lat, lon], 10);

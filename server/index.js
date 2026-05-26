@@ -706,6 +706,15 @@ app.get("/api/cargo/:id/available-trucks", async (req, res) => {
             )
           )::numeric, 1
         ) AS distance_km,
+        CEIL((
+          (
+            6371 * acos(
+              cos(radians($3)) * cos(radians(t.latitude)) *
+              cos(radians(t.longitude) - radians($4)) +
+              sin(radians($3)) * sin(radians(t.latitude))
+            )
+          ) / 70.0 * 60
+        )::numeric) AS eta_minutes,
         (
           40
           + CASE WHEN COALESCE(t.capacity_tons, 0) >= COALESCE($1, 0) THEN 20 ELSE 0 END
@@ -719,7 +728,7 @@ app.get("/api/cargo/:id/available-trucks", async (req, res) => {
         AND t.latitude IS NOT NULL
         AND t.longitude IS NOT NULL
         AND t.location_updated_at > now() - interval '24 hours'
-      ORDER BY distance_km ASC, match_score DESC
+      ORDER BY eta_minutes ASC, match_score DESC
       LIMIT 50
     `, [
       c.weight_tons,
