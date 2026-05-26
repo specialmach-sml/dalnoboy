@@ -1410,7 +1410,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{cargo_id}")],
-                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=92"))]
+                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=134"))]
                 ])
             )
             return
@@ -2120,7 +2120,7 @@ async def admindealchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"💬 В сделке #{deal_id} сообщений нет")
         return
 
-    text = f"🛠 Чат сделки #{deal_id}\n\n"
+    text = f"💬 Чат по грузу #{deal_id}\n\n"
 
     for r in reversed(rows):
         text += (
@@ -3024,7 +3024,7 @@ async def findtruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     callback_data=f"driver_profile_{r['truck_id']}"
                 ),
                 InlineKeyboardButton(
-                    "🤝 Сделка",
+                    "💬 Переговоры",
                     callback_data=f"truck_deal_{r['truck_id']}"
                 )
             ]
@@ -3496,7 +3496,7 @@ async def searchdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, deal_id)
 
     if not deal:
-        await update.message.reply_text("❌ Сделка не найдена")
+        await update.message.reply_text("❌ Чат не найден")
         return
 
     if user_id not in [deal["created_by"], deal["driver_id"]]:
@@ -3553,7 +3553,7 @@ async def disputereason(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, deal_id)
 
     if not deal:
-        await update.message.reply_text("❌ Сделка не найдена")
+        await update.message.reply_text("❌ Чат не найден")
         return
 
     if user_id not in [deal["created_by"], deal["driver_id"]]:
@@ -3596,7 +3596,7 @@ async def dispute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, deal_id)
 
     if not deal:
-        await update.message.reply_text("❌ Сделка не найдена")
+        await update.message.reply_text("❌ Чат не найден")
         return
 
     if user_id not in [deal["created_by"], deal["driver_id"]]:
@@ -3648,7 +3648,7 @@ async def dealchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, deal_id)
 
     if not deal:
-        await update.message.reply_text("❌ Сделка не найдена")
+        await update.message.reply_text("❌ Чат не найден")
         return
 
     if user_id not in [deal["created_by"], deal["driver_id"]]:
@@ -3674,7 +3674,7 @@ async def dealchat(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     text = (
-        f"💬 Чат сделки #{deal_id}\n"
+        f"💬 Чат по грузу #{deal_id}\n"
         f"Написать: /dealmsg {deal_id} текст\n"
         f"Ответить сюда: /replydeal текст\n"
         f"Спор: /disputereason {deal_id} причина\n\n"
@@ -3718,7 +3718,7 @@ async def dealmsg(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, deal_id)
 
     if not deal:
-        await update.message.reply_text("❌ Сделка не найдена")
+        await update.message.reply_text("❌ Чат не найден")
         return
 
     if user_id not in [deal["created_by"], deal["driver_id"]]:
@@ -3903,7 +3903,7 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=(
                     f"✅ Ваш отклик принят!\n"
                     f"📦 Груз #{response['cargo_id']}: {response['from_city']} → {response['to_city']}\n"
-                    f"🤝 Сделка создана"
+                    f"💬 Чат по грузу создан"
                 )
             )
         except Exception as e:
@@ -3922,10 +3922,10 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             (
                 f"✅ Отклик #{response_id} принят\n\n"
                 f"📦 {response['from_city']} → {response['to_city']}\n"
-                f"🤝 Сделка #{deal_id} создана"
+                f"💬 Переговоры #{deal_id} создана"
             ),
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🤝 Открыть сделку", callback_data=f"deal_chat_{deal_id}")]
+                [InlineKeyboardButton("💬 Открыть чат", callback_data=f"deal_chat_{deal_id}")]
             ])
         )
         return
@@ -3976,7 +3976,7 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for r in rows:
         text = (
-            f"🤝 Сделка #{r['id']}\n"
+            f"💬 Переговоры #{r['id']}\n"
             f"📦 Груз #{r['cargo_id']}: {r['from_city']} → {r['to_city']}\n"
             f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
             f"🚚 Машина #{r['truck_id']}: {r['current_city']}, {r['body_type']}\n"
@@ -4035,7 +4035,7 @@ async def deal_closedispute_button(update: Update, context: ContextTypes.DEFAULT
     """, deal_id)
 
     if not deal:
-        await q.message.reply_text("❌ Сделка не найдена")
+        await q.message.reply_text("❌ Чат не найден")
         return
 
     if user_id not in [deal["created_by"], deal["driver_id"]]:
@@ -4076,7 +4076,7 @@ async def deal_dispute_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     """, deal_id)
 
     if not deal:
-        await q.message.reply_text("❌ Сделка не найдена")
+        await q.message.reply_text("❌ Чат не найден")
         return
 
     if user_id not in [deal["created_by"], deal["driver_id"]]:
@@ -4181,7 +4181,7 @@ async def deal_chat_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["chat_deal_id"] = deal_id
 
     await q.message.reply_text(
-        f"💬 Чат сделки #{deal_id}\n\n"
+        f"💬 Чат по грузу #{deal_id}\n\n"
         f"Напишите сообщение обычным текстом.\n"
         f"История: /dealchat {deal_id}\n"
         f"Отмена: /cancel"
@@ -4216,7 +4216,7 @@ async def deal_chat_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not deal:
         context.user_data.pop("chat_deal_id", None)
-        await update.message.reply_text("❌ Сделка не найдена")
+        await update.message.reply_text("❌ Чат не найден")
         return
 
     if user_id not in [deal["created_by"], deal["driver_id"]]:
@@ -4291,7 +4291,7 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, deal_id)
 
     if not deal:
-        await q.message.reply_text("❌ Сделка не найдена")
+        await q.message.reply_text("❌ Чат не найден")
         return
 
     await DB.execute("""
@@ -4336,7 +4336,7 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.warning(f"Notify failed for {chat_id}: {e}")
 
     await q.message.reply_text(
-        f"🤝 Сделка #{deal_id}: статус изменён на {status_text}"
+        f"💬 Переговоры #{deal_id}: статус изменён на {status_text}"
     )
 
 
@@ -4393,7 +4393,7 @@ async def rate_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """, deal_id)
 
     if not deal:
-        await q.message.reply_text("❌ Сделка не найдена")
+        await q.message.reply_text("❌ Чат не найден")
         return
 
     from_user_id = author["id"]
@@ -4447,7 +4447,7 @@ async def rate_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 text=(
                     f"⭐ Вам оставили отзыв\n\n"
                     f"Оценка: {score}⭐\n"
-                    f"🤝 Сделка #{deal_id}"
+                    f"💬 Переговоры #{deal_id}"
                 )
             )
         except Exception as e:
@@ -5477,7 +5477,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [
                 InlineKeyboardButton(
                     "🗺 Открыть карту",
-                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=80")
+                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=134")
                 )
             ]
         ])

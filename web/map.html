@@ -117,6 +117,15 @@
     <b>🚛 Dalnoboy карта</b><br>
     <small id="cargoCount">Загрузка грузов...</small><br>
     <small id="truckCount">Загрузка машин...</small><br>
+    <button onclick="toggleStats()" class="btn btn-dark" style="margin-top:6px">
+      📊 Статистика
+    </button>
+
+    <div id="statsBlock" style="display:none;margin-top:6px">
+      <small id="profitableCount">🟢 Выгодных: 0</small><br>
+      <small id="avgRate">💰 Средняя ставка: 0 ₽/км</small><br>
+      <small id="nearestCargo">📍 Ближайший груз: -</small><br>
+    </div>
     <small>🟢 GEO до 2ч · 🟡 GEO до 24ч</small><br>
     <small>🟢 ≥100 ₽/км · 🟡 есть ставка · 🔴 без ставки</small>
 
@@ -167,6 +176,7 @@
 const map = L.map('map').setView([55.7558, 37.6173], 6);
 
 let telegramUserId = null;
+let myMinRate = 0;
 
 if (window.Telegram && Telegram.WebApp) {
   Telegram.WebApp.ready();
@@ -360,7 +370,27 @@ map.on('click', function(e) {
       .then(data => {
         if (data.success) {
           alert('✅ Груз создан #' + data.cargo_id + '\nСтавка: ' + formatRate(data.rate_per_km));
-          loadCargo('');
+          
+async function loadMyTruckInfo() {
+  const tgId = getTelegramUserId ? getTelegramUserId() : telegramUserId;
+
+  if (!tgId) return;
+
+  try {
+    const res = await fetch('/api/me/truck?telegram_id=' + encodeURIComponent(tgId));
+    const data = await res.json();
+
+    if (data.success && data.truck) {
+      myMinRate = Number(data.truck.min_rate_per_km || 0);
+    }
+  } catch(e) {
+    console.log('my truck info error', e.message);
+  }
+}
+
+
+loadMyTruckInfo().then(() => loadCargo(''));
+
         } else {
           alert('❌ Ошибка создания груза: ' + (data.error || 'unknown'));
         }
@@ -550,7 +580,7 @@ async function submitCreatedCargo() {
 
       document.getElementById('createCargoPanel').style.display='none';
 
-      loadCargo('');
+      
 
     } else {
 
@@ -568,9 +598,11 @@ async function submitCreatedCargo() {
 
 function cargoIconByRate(rate) {
   const r = Number(rate || 0);
+  const min = Number(myMinRate || 0);
+
   let emoji = '🔴📦';
 
-  if (r >= 100) {
+  if (r > 0 && min > 0 && r >= min) {
     emoji = '🟢📦';
   } else if (r > 0) {
     emoji = '🟡📦';
@@ -674,6 +706,21 @@ function filterCity() {
   loadCargo(city ? '?city=' + encodeURIComponent(city) : '');
 }
 
+
+
+function toggleStats() {
+  const el = document.getElementById('statsBlock');
+
+  if (!el) return;
+
+  if (el.style.display === 'none') {
+    el.style.display = 'block';
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+
 function loadCargo(query) {
   lastCargoQuery = query || '';
   clearCargoMarkers();
@@ -752,7 +799,7 @@ setInterval(() => {
   if (autoRefreshEnabled) {
     loadCargo(lastCargoQuery);
   }
-}, 30000);
+}, 60 * 1000);
 
 function loadAvailableTrucks(cargoId) {
   const cargoList = document.getElementById('cargoList');
@@ -763,10 +810,16 @@ function loadAvailableTrucks(cargoId) {
   fetch(url)
     .then(r => r.json())
     .then(data => {
-      document.getElementById('cargoCount').innerText = 'Попутных машин: ' + data.count;
+      const items = data.items || [];
+      document.getElementById('cargoCount').innerText = 'Попутных машин: ' + items.length;
       cargoList.innerHTML = '';
 
-      data.items.forEach(t => {
+      if (!items.length) {
+        cargoList.innerHTML = '<div class="cargo-card">🚚 Попутных машин пока нет</div>';
+        return;
+      }
+
+      items.forEach(t => {
         const lat = parseFloat(t.latitude);
         const lon = parseFloat(t.longitude);
 
@@ -775,10 +828,11 @@ function loadAvailableTrucks(cargoId) {
         card.innerHTML =
           '<b>🚚 Машина #' + t.id + '</b><br>' +
           '👤 ' + (t.full_name || 'Водитель') + '<br>' +
-          '🚩 ' + (t.route_from || '-') + ' → ' + (t.route_to || '-') + '<br>' +
-          '📦 Свободно: ' + (t.available_tons || '-') + ' т / ' + (t.available_volume_m3 || '-') + ' м³<br>' +
+          '📍 До загрузки: ' + (t.distance_km || '-') + ' км<br>' +
+          '📦 ' + (t.body_type || '-') + ' · ' + (t.capacity_tons || '-') + ' т / ' + (t.volume_m3 || '-') + ' м³<br>' +
+          '💰 Мин. ставка: ' + (t.min_rate_per_km || '-') + ' ₽/км<br>' +
           '🔥 Совпадение: ' + (t.match_score || '-') + '%<br>' +
-          '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4);
+          '🟢 GEO: ' + (t.location_updated_at ? 'активно' : 'нет');
 
         card.onclick = () => {
           map.setView([lat, lon], 10);
@@ -948,6 +1002,7 @@ function autoUpdateTruckGeo() {
 }
 
 setTimeout(autoUpdateTruckGeo, 1200);
+setInterval(autoUpdateTruckGeo, 30 * 60 * 1000);
 
 
 function toggleAutoRefresh() {
@@ -974,46 +1029,73 @@ function toggleTrucks() {
   });
 }
 
-fetch('/api/trucks/active')
-  .then(r => r.json())
-  .then(data => {
-    document.getElementById('truckCount').innerText = 'Активных машин: ' + data.count;
-
-    data.items.forEach(t => {
-      const lat = parseFloat(t.latitude);
-      const lon = parseFloat(t.longitude);
-
-      let displayLat = lat;
-      let displayLon = lon;
-
-      const sameCargoPoint = cargoMarkers.some(m => {
-        const p = m.getLatLng();
-        return Math.abs(p.lat - lat) < 0.0001 && Math.abs(p.lng - lon) < 0.0001;
-      });
-
-      if (sameCargoPoint) {
-        displayLon = lon + 0.003;
-      }
-
-      const updatedAt = t.location_updated_at || null;
-      const updatedText = updatedAt ? new Date(updatedAt).toLocaleString() : '-';
-
-      const contactLine =
-        '💬 <a class="btn" href="https://t.me/dalnoboybros_bot?start=user_' + t.driver_id + '" target="_blank">Написать</a><br>';
-
-      const truckMarker = L.marker([displayLat, displayLon], { icon: truckIconByFreshness(updatedAt), zIndexOffset: 1000 })
-        .addTo(map)
-        .bindPopup(
-          '<b>🚚 Машина #' + t.id + '</b><br>' +
-          '👤 ' + (t.full_name || 'Водитель') + '<br>' +
-          contactLine +
-          '🕒 GEO: ' + updatedText + '<br>' +
-          '📍 ' + lat + ', ' + lon
-        );
-
-      truckMarkers.push(truckMarker);
-    });
+function clearTruckMarkers() {
+  truckMarkers.forEach(m => {
+    try {
+      map.removeLayer(m);
+    } catch(e) {}
   });
+  truckMarkers = [];
+}
+
+function loadActiveTrucks() {
+  clearTruckMarkers();
+
+  fetch('/api/trucks/active')
+    .then(r => r.json())
+    .then(data => {
+      const items = data.items || [];
+
+      document.getElementById('truckCount').innerText = 'Активных машин: ' + items.length;
+
+      items.forEach(t => {
+        const lat = parseFloat(t.latitude);
+        const lon = parseFloat(t.longitude);
+
+        if (!lat || !lon) return;
+
+        let displayLat = lat;
+        let displayLon = lon;
+
+        const sameCargoPoint = cargoMarkers.some(m => {
+          const p = m.getLatLng();
+          return Math.abs(p.lat - lat) < 0.0001 && Math.abs(p.lng - lon) < 0.0001;
+        });
+
+        if (sameCargoPoint) {
+          displayLon = lon + 0.003;
+        }
+
+        const updatedAt = t.location_updated_at || null;
+        const updatedText = updatedAt ? new Date(updatedAt).toLocaleString() : '-';
+
+        const contactLine =
+          '💬 <a class="btn" href="https://t.me/dalnoboybros_bot?start=user_' + t.driver_id + '" target="_blank">Профиль</a><br>';
+
+        const truckMarker = L.marker([displayLat, displayLon], {
+          icon: truckIconByFreshness(updatedAt),
+          zIndexOffset: 1000
+        })
+          .addTo(map)
+          .bindPopup(
+            '<b>🚚 Машина #' + t.id + '</b><br>' +
+            '👤 ' + (t.full_name || 'Водитель') + '<br>' +
+            contactLine +
+            '🕒 GEO: ' + updatedText + '<br>' +
+            '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4)
+          );
+
+        truckMarkers.push(truckMarker);
+      });
+    })
+    .catch(e => console.log('load trucks error', e.message));
+}
+
+loadActiveTrucks();
+
+setInterval(() => {
+  loadActiveTrucks();
+}, 2 * 60 * 1000);
 </script>
 
 <style>

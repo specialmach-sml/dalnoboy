@@ -623,17 +623,21 @@ app.get("/api/cargo/:id/available-trucks", async (req, res) => {
     const cargoId = Number(req.params.id);
 
     const cargo = await pool.query(`
-      SELECT id, from_city, to_city, weight_tons, volume_m3
+      SELECT
+        id,
+        from_city,
+        to_city,
+        weight_tons,
+        volume_m3,
+        load_latitude,
+        load_longitude
       FROM cargo
       WHERE id=$1
       LIMIT 1
     `, [cargoId]);
 
     if (!cargo.rows.length) {
-      return res.status(404).json({
-        success: false,
-        error: "cargo_not_found"
-      });
+      return res.status(404).json({ success:false, error:"cargo_not_found" });
     }
 
     const c = cargo.rows[0];
@@ -653,47 +657,49 @@ app.get("/api/cargo/:id/available-trucks", async (req, res) => {
         t.latitude,
         t.longitude,
         t.location_updated_at,
+        t.min_rate_per_km,
         u.full_name,
         COALESCE(u.plan_type, 'free') AS plan_type,
+        ROUND(
+          (
+            6371 * acos(
+              cos(radians($3)) * cos(radians(t.latitude)) *
+              cos(radians(t.longitude) - radians($4)) +
+              sin(radians($3)) * sin(radians(t.latitude))
+            )
+          )::numeric, 1
+        ) AS distance_km,
         (
           40
-          + CASE WHEN COALESCE(t.available_tons, 0) >= COALESCE($1, 0) THEN 20 ELSE 0 END
-          + CASE WHEN COALESCE(t.available_volume_m3, 0) >= COALESCE($2, 0) THEN 20 ELSE 0 END
+          + CASE WHEN COALESCE(t.capacity_tons, 0) >= COALESCE($1, 0) THEN 20 ELSE 0 END
+          + CASE WHEN COALESCE(t.volume_m3, 0) >= COALESCE($2, 0) THEN 20 ELSE 0 END
           + CASE WHEN t.location_updated_at > now() - interval '2 hours' THEN 10 ELSE 0 END
           + CASE WHEN COALESCE(u.plan_type, 'free') IN ('pro','company') THEN 10 ELSE 0 END
         ) AS match_score
       FROM trucks t
       LEFT JOIN users u ON u.id = t.driver_id
       WHERE t.status='active'
-        AND t.allow_partial_load = true
         AND t.latitude IS NOT NULL
         AND t.longitude IS NOT NULL
         AND t.location_updated_at > now() - interval '24 hours'
-        AND COALESCE(t.available_tons, 0) >= COALESCE($1, 0)
-        AND COALESCE(t.available_volume_m3, 0) >= COALESCE($2, 0)
-        AND (
-          t.route_from ILIKE $3
-          OR t.current_city ILIKE $3
-        )
-        AND t.route_to ILIKE $4
-      ORDER BY match_score DESC, t.location_updated_at DESC NULLS LAST
-      LIMIT 100
+      ORDER BY distance_km ASC, match_score DESC
+      LIMIT 50
     `, [
       c.weight_tons,
       c.volume_m3,
-      `%${c.from_city || ""}%`,
-      `%${c.to_city || ""}%`
+      c.load_latitude,
+      c.load_longitude
     ]);
 
     res.json({
-      success: true,
-      cargo: c,
+      success:true,
+      cargo:c,
       count: rows.rows.length,
       items: rows.rows
     });
-  } catch (e) {
+  } catch(e) {
     console.error(e);
-    res.status(500).json({ success: false, error: e.message });
+    res.status(500).json({ success:false, error:e.message });
   }
 });
 
