@@ -432,7 +432,22 @@ app.post("/api/cargo/create", async (req, res) => {
       VALUES (
         $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'open'
       )
-      RETURNING id, rate_per_km
+      RETURNING
+        id,
+        from_city,
+        to_city,
+        description,
+        price_amount,
+        price_currency,
+        distance_km,
+        rate_per_km,
+        load_latitude,
+        load_longitude,
+        unload_latitude,
+        unload_longitude,
+        weight_tons,
+        volume_m3,
+        status
     `, [
       from_city,
       to_city,
@@ -448,10 +463,13 @@ app.post("/api/cargo/create", async (req, res) => {
       Number(volume_m3 || 0) || null
     ]);
 
+    io.emit("cargo_created", q.rows[0]);
+
     res.json({
       success: true,
       cargo_id: q.rows[0].id,
-      rate_per_km: q.rows[0].rate_per_km
+      rate_per_km: q.rows[0].rate_per_km,
+      cargo: q.rows[0]
     });
 
   } catch(e) {

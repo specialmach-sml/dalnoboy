@@ -723,6 +723,68 @@ function toggleStats() {
 }
 
 
+
+
+function addCargoMarkerLive(c) {
+  const lat = parseFloat(c.load_latitude);
+  const lon = parseFloat(c.load_longitude);
+
+  if (!lat || !lon) return;
+
+  const exists = cargoMarkers.some(m => {
+    const p = m.getLatLng();
+    return m.cargoId == c.id || (Math.abs(p.lat - lat) < 0.00001 && Math.abs(p.lng - lon) < 0.00001);
+  });
+
+  if (exists) return;
+
+  const marker = L.marker([lat, lon], { icon: cargoIconByRate(c.rate_per_km) })
+    .bindPopup(
+      '<b>📦 Груз #' + c.id + '</b><br>' +
+      '🚩 ' + c.from_city + ' → ' + c.to_city + '<br>' +
+      '💰 ' + c.price_amount + ' ' + (c.price_currency || '₽') + '<br>' +
+      '📏 ' + (c.distance_km || '-') + ' км<br>' +
+      '💵 ' + formatRate(c.rate_per_km) + '<br>' +
+      '📝 ' + (c.description || '') + '<br>' +
+      '<button class="btn" onclick="loadAvailableTrucks(' + c.id + ')">🔎 Попутные машины</button><br>' +
+      '<button class="btn" onclick="respondToCargo(' + c.id + ')">🚛 Откликнуться</button><br>' +
+      '<a class="btn" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lon + '" target="_blank">🧭 Маршрут</a>'
+    );
+
+  marker.cargoId = c.id;
+  cargoMarkers.push(marker);
+  cargoCluster.addLayer(marker);
+  drawCargoRoute(c);
+
+  const cargoList = document.getElementById('cargoList');
+  if (cargoList) {
+    const card = document.createElement('div');
+    card.className = 'cargo-card';
+    card.innerHTML =
+      '<b>🆕 📦 Груз #' + c.id + '</b><br>' +
+      '🚩 ' + c.from_city + ' → ' + c.to_city + '<br>' +
+      '💰 ' + c.price_amount + ' ' + (c.price_currency || '₽') + '<br>' +
+      '📏 ' + (c.distance_km || '-') + ' км<br>' +
+      '💵 ' + formatRate(c.rate_per_km) + '<br>' +
+      '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4) + '<br>' +
+      '<button class="btn btn-green" onclick="event.stopPropagation(); respondToCargo(' + c.id + ')">🚛 Откликнуться</button>';
+
+    card.onclick = () => {
+      map.setView([lat, lon], 10);
+      marker.openPopup();
+    };
+
+    cargoList.prepend(card);
+  }
+
+  const countEl = document.getElementById('cargoCount');
+  if (countEl) {
+    const n = cargoMarkers.length;
+    countEl.innerText = 'Найдено грузов: ' + n;
+  }
+}
+
+
 function loadCargo(query) {
   lastCargoQuery = query || '';
   clearCargoMarkers();
@@ -1146,72 +1208,21 @@ try {
     console.log('truck_location_updated', data);
     updateTruckMarkerLive(data);
   });
+
+  socket.on('cargo_created', (data) => {
+    console.log('cargo_created', data);
+    addCargoMarkerLive(data);
+  });
 } catch(e) {
   console.log('socket init error', e.message);
 }
-
 
 loadActiveTrucks();
 
 setInterval(() => {
-  
-function updateTruckMarkerLive(t) {
-  const id = t.truck_id || t.id;
-  const lat = parseFloat(t.latitude);
-  const lon = parseFloat(t.longitude);
-
-  if (!id || !lat || !lon) return;
-
-  const updatedAt = t.updated_at || t.location_updated_at || new Date().toISOString();
-  const updatedText = new Date(updatedAt).toLocaleString();
-
-  let marker = truckMarkersById[id];
-
-  if (marker) {
-    marker.setLatLng([lat, lon]);
-    marker.setIcon(truckIconByFreshness(updatedAt));
-    marker.setPopupContent(
-      '<b>🚚 Машина #' + id + '</b><br>' +
-      '🕒 GEO: ' + updatedText + '<br>' +
-      '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4)
-    );
-  } else {
-    marker = L.marker([lat, lon], {
-      icon: truckIconByFreshness(updatedAt),
-      zIndexOffset: 1000
-    }).bindPopup(
-      '<b>🚚 Машина #' + id + '</b><br>' +
-      '🕒 GEO: ' + updatedText + '<br>' +
-      '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4)
-    );
-
-    truckMarkersById[id] = marker;
-    truckMarkers.push(marker);
-
-    if (trucksVisible) {
-      marker.addTo(map);
-    }
-  }
-}
-
-try {
-  const socket = io();
-
-  socket.on('connect', () => {
-    console.log('socket connected');
-  });
-
-  socket.on('truck_location_updated', (data) => {
-    console.log('truck_location_updated', data);
-    updateTruckMarkerLive(data);
-  });
-} catch(e) {
-  console.log('socket init error', e.message);
-}
-
-
-loadActiveTrucks();
+  loadActiveTrucks();
 }, 2 * 60 * 1000);
+
 </script>
 
 <style>
