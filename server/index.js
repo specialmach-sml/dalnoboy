@@ -666,6 +666,7 @@ app.get("/api/cargo/:id/available-trucks", async (req, res) => {
         to_city,
         weight_tons,
         volume_m3,
+        rate_per_km,
         load_latitude,
         load_longitude
       FROM cargo
@@ -715,12 +716,51 @@ app.get("/api/cargo/:id/available-trucks", async (req, res) => {
             )
           ) / 70.0 * 60
         )::numeric) AS eta_minutes,
-        (
-          40
-          + CASE WHEN COALESCE(t.capacity_tons, 0) >= COALESCE($1, 0) THEN 20 ELSE 0 END
-          + CASE WHEN COALESCE(t.volume_m3, 0) >= COALESCE($2, 0) THEN 20 ELSE 0 END
-          + CASE WHEN t.location_updated_at > now() - interval '2 hours' THEN 10 ELSE 0 END
-          + CASE WHEN COALESCE(u.plan_type, 'free') IN ('pro','company') THEN 10 ELSE 0 END
+        LEAST(100,
+          (
+            CASE
+              WHEN (
+                6371 * acos(
+                  cos(radians($3)) * cos(radians(t.latitude)) *
+                  cos(radians(t.longitude) - radians($4)) +
+                  sin(radians($3)) * sin(radians(t.latitude))
+                )
+              ) <= 50 THEN 25
+              WHEN (
+                6371 * acos(
+                  cos(radians($3)) * cos(radians(t.latitude)) *
+                  cos(radians(t.longitude) - radians($4)) +
+                  sin(radians($3)) * sin(radians(t.latitude))
+                )
+              ) <= 150 THEN 18
+              WHEN (
+                6371 * acos(
+                  cos(radians($3)) * cos(radians(t.latitude)) *
+                  cos(radians(t.longitude) - radians($4)) +
+                  sin(radians($3)) * sin(radians(t.latitude))
+                )
+              ) <= 300 THEN 10
+              ELSE 5
+            END
+            + CASE
+                WHEN t.location_updated_at > now() - interval '30 minutes' THEN 15
+                WHEN t.location_updated_at > now() - interval '2 hours' THEN 8
+                ELSE 0
+              END
+            + CASE WHEN COALESCE(t.capacity_tons, 0) >= COALESCE($1, 0) THEN 15 ELSE 0 END
+            + CASE WHEN COALESCE(t.volume_m3, 0) >= COALESCE($2, 0) THEN 15 ELSE 0 END
+            + CASE WHEN COALESCE(u.plan_type, 'free') IN ('pro','company') THEN 10 ELSE 0 END
+            + CASE
+                WHEN COALESCE($5, 0) > 0
+                 AND COALESCE(t.min_rate_per_km, 0) > 0
+                 AND COALESCE($5, 0) >= COALESCE(t.min_rate_per_km, 0)
+                THEN 20
+                WHEN COALESCE($5, 0) > 0
+                 AND COALESCE(t.min_rate_per_km, 0) = 0
+                THEN 8
+                ELSE 0
+              END
+          )
         ) AS match_score
       FROM trucks t
       LEFT JOIN users u ON u.id = t.driver_id
@@ -734,7 +774,8 @@ app.get("/api/cargo/:id/available-trucks", async (req, res) => {
       c.weight_tons,
       c.volume_m3,
       c.load_latitude,
-      c.load_longitude
+      c.load_longitude,
+      c.rate_per_km
     ]);
 
     res.json({
