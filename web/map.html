@@ -1224,6 +1224,32 @@ function loadActiveTrucks() {
 }
 
 
+
+
+function markDriverOfferStatus(driverId, status) {
+  const cards = document.querySelectorAll('.cargo-card');
+
+  cards.forEach(card => {
+    if (!card.innerHTML.includes('offerCargoToDriver(' + driverId + ')')) return;
+
+    let label = '📨 Предложено';
+    if (status === 'accepted') label = '✅ Принято';
+    if (status === 'rejected') label = '❌ Отказ';
+
+    const badge = '<div style="margin-top:6px;font-weight:700;">' + label + '</div>';
+
+    if (!card.innerHTML.includes('📨 Предложено') &&
+        !card.innerHTML.includes('✅ Принято') &&
+        !card.innerHTML.includes('❌ Отказ')) {
+      card.innerHTML += badge;
+    } else {
+      card.innerHTML = card.innerHTML
+        .replace(/<div style="margin-top:6px;font-weight:700;">.*?<\/div>/, badge);
+    }
+  });
+}
+
+
 function updateTruckMarkerLive(t) {
   const id = t.truck_id || t.id;
   const lat = parseFloat(t.latitude);
@@ -1278,6 +1304,16 @@ try {
   socket.on('cargo_created', (data) => {
     console.log('cargo_created', data);
     addCargoMarkerLive(data);
+  });
+
+  socket.on('cargo_offered', (data) => {
+    console.log('cargo_offered', data);
+    markDriverOfferStatus(data.driver_id, 'offered');
+  });
+
+  socket.on('response_status_updated', (data) => {
+    console.log('response_status_updated', data);
+    markDriverOfferStatus(data.truck_id || data.driver_id, data.status);
   });
 } catch(e) {
   console.log('socket init error', e.message);

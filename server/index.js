@@ -1184,6 +1184,32 @@ app.post("/api/cargo/offer", async (req, res) => {
 
 
 
+app.post("/api/realtime/response-status", async (req, res) => {
+  try {
+    const { response_id, status, cargo_id, truck_id, deal_id } = req.body;
+
+    if (!response_id || !status) {
+      return res.status(400).json({ success:false, error:"response_id_status_required" });
+    }
+
+    io.emit("response_status_updated", {
+      response_id,
+      status,
+      cargo_id,
+      truck_id,
+      deal_id: deal_id || null,
+      updated_at: new Date().toISOString()
+    });
+
+    res.json({ success:true });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ success:false, error:e.message });
+  }
+});
+
+
+
 app.get("/", (req, res) => {
   res.sendFile("/root/dalnoboy/web/map.html");
 });

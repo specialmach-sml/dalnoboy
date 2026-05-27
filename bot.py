@@ -1410,7 +1410,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{cargo_id}")],
-                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=139"))]
+                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=140"))]
                 ])
             )
             return
@@ -3844,6 +3844,25 @@ async def responses_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(text, reply_markup=kb)
 
+
+async def emit_response_status(response_id, status, cargo_id=None, truck_id=None, deal_id=None):
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.post(
+                "http://localhost:5000/api/realtime/response-status",
+                json={
+                    "response_id": response_id,
+                    "status": status,
+                    "cargo_id": cargo_id,
+                    "truck_id": truck_id,
+                    "deal_id": deal_id
+                },
+                timeout=5
+            )
+    except Exception as e:
+        logging.warning(f"emit_response_status failed: {e}")
+
+
 async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -3916,6 +3935,14 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             LIMIT 1
         """, response_id)
 
+        await emit_response_status(
+            response_id,
+            "accepted",
+            cargo_id=response["cargo_id"],
+            truck_id=response["truck_id"],
+            deal_id=deal_id
+        )
+
         await q.edit_message_reply_markup(reply_markup=None)
 
         await q.message.reply_text(
@@ -3936,6 +3963,13 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             SET status='rejected'
             WHERE id=$1
         """, response_id)
+
+        await emit_response_status(
+            response_id,
+            "rejected",
+            cargo_id=response["cargo_id"],
+            truck_id=response["truck_id"]
+        )
 
         await q.message.reply_text(f"❌ Отклик #{response_id} отклонён")
         return
@@ -5475,7 +5509,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [
                 InlineKeyboardButton(
                     "🗺 Открыть карту",
-                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=139")
+                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=140")
                 )
             ]
         ])
