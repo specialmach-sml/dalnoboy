@@ -4032,7 +4032,8 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("❌ Отменить", callback_data=f"deal_cancelled_{r['id']}")
             ],
             [
-                InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}")
+                InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
+                InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
             ],
             [
                 InlineKeyboardButton(
@@ -4316,6 +4317,97 @@ async def emit_deal_status(deal_id, status, status_text=None, cargo_id=None):
         logging.warning(f"emit_deal_status failed: {e}")
 
 
+async def deal_timeline_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    deal_id = int(q.data.split("_")[-1])
+
+    rows = await DB.fetch("""
+        SELECT
+            h.status,
+            h.created_at,
+            u.full_name
+        FROM deal_status_history h
+        LEFT JOIN users u ON u.id = h.created_by
+        WHERE h.deal_id=$1
+        ORDER BY h.created_at ASC
+    """, deal_id)
+
+    if not rows:
+        await q.message.reply_text(f"📭 Таймлайн сделки #{deal_id} пока пуст")
+        return
+
+    labels = {
+        "active": "🟢 Активная",
+        "to_pickup": "🚚 Еду на загрузку",
+        "loading": "📍 На загрузке",
+        "loaded": "📦 Загружен",
+        "in_progress": "🚚 В пути",
+        "done": "✅ Доставлено",
+        "delivered": "🏁 Доставлен",
+        "cancelled": "❌ Отменено"
+    }
+
+    text = f"📍 Таймлайн сделки #{deal_id}\\n\\n"
+
+    for r in rows:
+        label = labels.get(r["status"], r["status"])
+        who = r["full_name"] or "Пользователь"
+        dt = r["created_at"].strftime("%d.%m %H:%M")
+        text += f"{dt} — {label}\\n👤 {who}\\n\\n"
+
+    await q.message.reply_text(text)
+
+
+async def dealtimeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Использование: /dealtimeline ID")
+        return
+
+    try:
+        deal_id = int(context.args[0])
+    except:
+        await update.message.reply_text("❌ Неверный ID")
+        return
+
+    rows = await DB.fetch("""
+        SELECT
+            h.status,
+            h.created_at,
+            u.full_name
+        FROM deal_status_history h
+        LEFT JOIN users u ON u.id = h.created_by
+        WHERE h.deal_id=$1
+        ORDER BY h.created_at ASC
+    """, deal_id)
+
+    if not rows:
+        await update.message.reply_text(f"📭 Таймлайн сделки #{deal_id} пока пуст")
+        return
+
+    labels = {
+        "active": "🟢 Активная",
+        "to_pickup": "🚚 Еду на загрузку",
+        "loading": "📍 На загрузке",
+        "loaded": "📦 Загружен",
+        "in_progress": "🚚 В пути",
+        "done": "✅ Доставлено",
+        "delivered": "🏁 Доставлен",
+        "cancelled": "❌ Отменено"
+    }
+
+    text = f"📍 Таймлайн сделки #{deal_id}\\n\\n"
+
+    for r in rows:
+        label = labels.get(r["status"], r["status"])
+        who = r["full_name"] or "Пользователь"
+        dt = r["created_at"].strftime("%d.%m %H:%M")
+        text += f"{dt} — {label}\\n👤 {who}\\n\\n"
+
+    await update.message.reply_text(text)
+
+
 async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -4350,6 +4442,27 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         SET status=$1, updated_at=now()
         WHERE id=$2
     """, status, deal_id)
+
+    actor = await DB.fetchrow("""
+        SELECT id
+        FROM users
+        WHERE telegram_id=$1
+        LIMIT 1
+    """, q.from_user.id)
+
+    if actor:
+        await DB.execute("""
+            INSERT INTO deal_status_history (
+                deal_id,
+                status,
+                created_by
+            )
+            VALUES ($1,$2,$3)
+        """,
+            deal_id,
+            status,
+            actor["id"]
+        )
 
     cargo_status = {
         "active": "booked",
@@ -6351,6 +6464,7 @@ def main():
     app.add_handler(CommandHandler("replydeal", replydeal))
     app.add_handler(CommandHandler("searchdeal", searchdeal))
     app.add_handler(CommandHandler("deals", deals_list))
+    app.add_handler(CommandHandler("dealtimeline", dealtimeline))
     app.add_handler(CommandHandler("matching", matching))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text))
     app.add_handler(CommandHandler("profile", profile))
@@ -6388,6 +6502,7 @@ def main():
     app.add_handler(CallbackQueryHandler(deal_reason_help, pattern="^deal_reason_help_"))
     app.add_handler(CallbackQueryHandler(deal_write_help, pattern="^deal_write_help_"))
     app.add_handler(CallbackQueryHandler(deal_history_button, pattern="^deal_history_"))
+    app.add_handler(CallbackQueryHandler(deal_timeline_button, pattern="^deal_timeline_"))
     app.add_handler(CallbackQueryHandler(deal_chat_button, pattern="^deal_chat_"))
     app.add_handler(CallbackQueryHandler(deal_action, pattern="^deal_"))
     app.add_handler(CallbackQueryHandler(review_action, pattern="^review_"))
