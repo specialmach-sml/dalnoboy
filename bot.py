@@ -4036,6 +4036,9 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
             ],
             [
+                InlineKeyboardButton("📄 Отчёт", callback_data=f"deal_report_{r['id']}")
+            ],
+            [
                 InlineKeyboardButton("📄 Документы", callback_data=f"deal_docs_{r['id']}"),
                 InlineKeyboardButton("📸 Фото загрузки", callback_data=f"deal_loadphoto_{r['id']}")
             ],
@@ -4480,6 +4483,18 @@ async def emit_deal_status(deal_id, status, status_text=None, cargo_id=None):
         logging.warning(f"emit_deal_status failed: {e}")
 
 
+async def deal_report_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    deal_id = int(q.data.split("_")[-1])
+
+    fake_update = Update(update.update_id, message=q.message)
+    context.args = [str(deal_id)]
+
+    return await dealreport(fake_update, context)
+
+
 async def deal_timeline_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -4521,6 +4536,103 @@ async def deal_timeline_button(update: Update, context: ContextTypes.DEFAULT_TYP
         text += f"{dt} — {label}\\n👤 {who}\\n\\n"
 
     await q.message.reply_text(text)
+
+
+async def dealreport(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Использование: /dealreport ID")
+        return
+
+    try:
+        deal_id = int(context.args[0])
+    except:
+        await update.message.reply_text("❌ Неверный ID")
+        return
+
+    deal = await DB.fetchrow("""
+        SELECT
+            d.id,
+            d.status,
+            d.created_at,
+            d.updated_at,
+            c.id AS cargo_id,
+            c.from_city,
+            c.to_city,
+            c.description,
+            c.price_amount,
+            c.price_currency,
+            c.distance_km,
+            c.rate_per_km,
+            t.id AS truck_id,
+            t.current_city,
+            t.body_type,
+            t.capacity_tons,
+            t.volume_m3,
+            owner.full_name AS owner_name,
+            driver.full_name AS driver_name
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        JOIN users owner ON owner.id = c.created_by
+        LEFT JOIN responses r ON r.id = d.response_id
+        JOIN users driver ON driver.id = COALESCE(r.driver_id, t.driver_id)
+        WHERE d.id=$1
+    """, deal_id)
+
+    if not deal:
+        await update.message.reply_text("❌ Сделка не найдена")
+        return
+
+    docs_count = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM deal_documents
+        WHERE deal_id=$1
+    """, deal_id)
+
+    history = await DB.fetch("""
+        SELECT status, created_at
+        FROM deal_status_history
+        WHERE deal_id=$1
+        ORDER BY created_at ASC
+    """, deal_id)
+
+    labels = {
+        "active": "Активная",
+        "to_pickup": "Еду на загрузку",
+        "loading": "На загрузке",
+        "loaded": "Загружен",
+        "in_progress": "В пути",
+        "done": "Доставлено",
+        "delivered": "Доставлен",
+        "cancelled": "Отменено"
+    }
+
+    text = (
+        f"📄 Отчёт по сделке #{deal['id']}\\n\\n"
+        f"📦 Груз #{deal['cargo_id']}\\n"
+        f"🚩 Маршрут: {deal['from_city']} → {deal['to_city']}\\n"
+        f"📝 Описание: {deal['description'] or '-'}\\n"
+        f"💰 Цена: {format_price(deal['price_amount'])} {deal['price_currency'] or ''}\\n"
+        f"📏 Дистанция: {deal['distance_km'] or '-'} км\\n"
+        f"💵 Ставка: {deal['rate_per_km'] or '-'} ₽/км\\n\\n"
+        f"🚚 Машина #{deal['truck_id']}\\n"
+        f"📍 Город: {deal['current_city'] or '-'}\\n"
+        f"🚛 Тип: {deal['body_type'] or '-'}\\n"
+        f"⚖️ {deal['capacity_tons'] or '-'} т / {deal['volume_m3'] or '-'} м³\\n\\n"
+        f"👤 Заказчик: {deal['owner_name'] or '-'}\\n"
+        f"👤 Водитель: {deal['driver_name'] or '-'}\\n"
+        f"📊 Статус: {labels.get(deal['status'], deal['status'])}\\n"
+        f"📎 Документов: {docs_count}\\n\\n"
+        f"📍 Таймлайн:\\n"
+    )
+
+    if history:
+        for h in history:
+            text += f"• {h['created_at'].strftime('%d.%m %H:%M')} — {labels.get(h['status'], h['status'])}\\n"
+    else:
+        text += "• Пока нет событий\\n"
+
+    await update.message.reply_text(text)
 
 
 async def dealtimeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6629,6 +6741,7 @@ def main():
     app.add_handler(CommandHandler("searchdeal", searchdeal))
     app.add_handler(CommandHandler("deals", deals_list))
     app.add_handler(CommandHandler("dealtimeline", dealtimeline))
+    app.add_handler(CommandHandler("dealreport", dealreport))
     app.add_handler(CommandHandler("matching", matching))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text))
     app.add_handler(CommandHandler("profile", profile))
@@ -6667,6 +6780,7 @@ def main():
     app.add_handler(CallbackQueryHandler(deal_write_help, pattern="^deal_write_help_"))
     app.add_handler(CallbackQueryHandler(deal_history_button, pattern="^deal_history_"))
     app.add_handler(CallbackQueryHandler(deal_timeline_button, pattern="^deal_timeline_"))
+    app.add_handler(CallbackQueryHandler(deal_report_button, pattern="^deal_report_"))
     app.add_handler(CallbackQueryHandler(deal_docs_button, pattern="^deal_(docs|adddoc|loadphoto|unloadphoto)_"))
     app.add_handler(CallbackQueryHandler(deal_open_document, pattern="^deal_opendoc_"))
     app.add_handler(CallbackQueryHandler(deal_chat_button, pattern="^deal_chat_"))
