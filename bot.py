@@ -4021,10 +4021,14 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         buttons = [
             [
-                InlineKeyboardButton("🚚 В пути", callback_data=f"deal_in_progress_{r['id']}"),
-                InlineKeyboardButton("✅ Доставлено", callback_data=f"deal_done_{r['id']}")
+                InlineKeyboardButton("🚚 Еду на загрузку", callback_data=f"deal_to_pickup_{r['id']}")
             ],
             [
+                InlineKeyboardButton("📍 На загрузке", callback_data=f"deal_loading_{r['id']}"),
+                InlineKeyboardButton("📦 Загружен", callback_data=f"deal_loaded_{r['id']}")
+            ],
+            [
+                InlineKeyboardButton("🏁 Доставлен", callback_data=f"deal_delivered_{r['id']}"),
                 InlineKeyboardButton("❌ Отменить", callback_data=f"deal_cancelled_{r['id']}")
             ],
             [
@@ -4298,14 +4302,9 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
-    parts = q.data.split("_")
-
-    if len(parts) == 4 and parts[1] == "in" and parts[2] == "progress":
-        status = "in_progress"
-        deal_id = int(parts[3])
-    else:
-        status = parts[1]
-        deal_id = int(parts[2])
+    raw = q.data.replace("deal_", "", 1)
+    status, deal_id_raw = raw.rsplit("_", 1)
+    deal_id = int(deal_id_raw)
 
     deal = await DB.fetchrow("""
         SELECT
@@ -4336,8 +4335,12 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     cargo_status = {
         "active": "booked",
+        "to_pickup": "in_progress",
+        "loading": "in_progress",
+        "loaded": "in_progress",
         "in_progress": "in_progress",
         "done": "done",
+        "delivered": "done",
         "cancelled": "open"
     }.get(status)
 
@@ -4350,8 +4353,12 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     labels = {
         "active": "🟢 Активная",
+        "to_pickup": "🚚 Еду на загрузку",
+        "loading": "📍 На загрузке",
+        "loaded": "📦 Загружен",
         "in_progress": "🚚 В пути",
         "done": "✅ Доставлено",
+        "delivered": "🏁 Доставлен",
         "cancelled": "❌ Отменено"
     }
 
