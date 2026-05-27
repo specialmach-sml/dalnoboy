@@ -642,6 +642,7 @@ let cargoLines = [];
 let truckMarkers = [];
 let truckMarkersById = {};
 let trucksVisible = true;
+let selectedCargoId = null;
 
 const cargoCluster = L.markerClusterGroup({
   spiderfyOnMaxZoom: true,
@@ -872,6 +873,7 @@ setInterval(() => {
 }, 60 * 1000);
 
 function loadAvailableTrucks(cargoId) {
+  selectedCargoId = cargoId || null;
   const cargoList = document.getElementById('cargoList');
   cargoList.innerHTML = 'Загрузка попутных машин...';
 
@@ -917,6 +919,7 @@ function loadAvailableTrucks(cargoId) {
           '💰 Мин. ставка: ' + (t.min_rate_per_km || '-') + ' ₽/км<br>' +
           '🔥 Совпадение: ' + score + '%<br>' +
           '🤖 Почему: ' + fitReasons.join(' · ') + '<br>' +
+          '<button class="btn btn-green" onclick="event.stopPropagation(); offerCargoToDriver(' + t.driver_id + ')">📨 Предложить рейс</button><br>' +
           '<a class="btn" href="https://t.me/dalnoboybros_bot?start=user_' + t.driver_id + '" target="_blank">💬 Профиль</a>';
 
         card.onclick = () => {
@@ -995,6 +998,43 @@ function getTelegramUserId() {
 
   return null;
 }
+
+
+
+async function offerCargoToDriver(driverId) {
+  if (!selectedCargoId) {
+    alert('Сначала выберите груз и нажмите "Попутные машины"');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/cargo/offer', {
+      method:'POST',
+      headers:{ 'Content-Type':'application/json' },
+      body:JSON.stringify({
+        cargo_id: selectedCargoId,
+        driver_id: driverId
+      })
+    });
+
+    const data = await res.json();
+
+    if (data.success && data.already) {
+      alert('⚠️ Этот рейс уже предложен водителю');
+      return;
+    }
+
+    if (data.success) {
+      alert('✅ Рейс предложен водителю');
+      return;
+    }
+
+    alert('❌ Ошибка предложения: ' + (data.error || 'unknown'));
+  } catch(e) {
+    alert('❌ Ошибка сети: ' + e.message);
+  }
+}
+
 
 async function respondToCargo(cargoId) {
   const tgId = getTelegramUserId();

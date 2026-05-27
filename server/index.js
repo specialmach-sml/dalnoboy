@@ -1051,6 +1051,139 @@ app.post("/api/respond", async (req, res) => {
   }
 });
 
+app.post("/api/cargo/offer", async (req, res) => {
+  try {
+    const { cargo_id, driver_id } = req.body;
+
+    if (!cargo_id || !driver_id) {
+      return res.status(400).json({ success:false, error:"cargo_id_driver_id_required" });
+    }
+
+    const cargoResult = await pool.query(`
+      SELECT
+        c.id,
+        c.from_city,
+        c.to_city,
+        c.price_amount,
+        c.price_currency,
+        c.rate_per_km,
+        c.created_by
+      FROM cargo c
+      WHERE c.id=$1
+      LIMIT 1
+    `, [cargo_id]);
+
+    if (!cargoResult.rows.length) {
+      return res.status(404).json({ success:false, error:"cargo_not_found" });
+    }
+
+    const truckResult = await pool.query(`
+      SELECT
+        t.id AS truck_id,
+        t.driver_id,
+        u.telegram_id,
+        u.full_name
+      FROM trucks t
+      JOIN users u ON u.id = t.driver_id
+      WHERE t.driver_id=$1
+      ORDER BY t.id DESC
+      LIMIT 1
+    `, [driver_id]);
+
+    if (!truckResult.rows.length) {
+      return res.status(404).json({ success:false, error:"driver_truck_not_found" });
+    }
+
+    const cargo = cargoResult.rows[0];
+    const driver = truckResult.rows[0];
+
+    const existing = await pool.query(`
+      SELECT id
+      FROM responses
+      WHERE cargo_id=$1 AND driver_id=$2
+      LIMIT 1
+    `, [cargo.id, driver.driver_id]);
+
+    if (existing.rows.length) {
+      return res.json({
+        success:true,
+        already:true,
+        response_id: existing.rows[0].id
+      });
+    }
+
+    const inserted = await pool.query(`
+      INSERT INTO responses (
+        cargo_id,
+        truck_id,
+        driver_id,
+        message,
+        status
+      )
+      VALUES ($1,$2,$3,$4,'offered')
+      RETURNING id
+    `, [
+      cargo.id,
+      driver.truck_id,
+      driver.driver_id,
+      "Предложение рейса от диспетчера"
+    ]);
+
+    const responseId = inserted.rows[0].id;
+
+    if (driver.telegram_id) {
+      try {
+        await fetch(
+          `https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,
+          {
+            method:"POST",
+            headers:{ "Content-Type":"application/json" },
+            body:JSON.stringify({
+              chat_id: driver.telegram_id,
+              text:
+                `📨 Вам предложили рейс\n\n` +
+                `📦 Груз #${cargo.id}\n` +
+                `🚩 ${cargo.from_city} → ${cargo.to_city}\n` +
+                `💰 ${cargo.price_amount || "-"} ${cargo.price_currency || "₽"}\n` +
+                `💵 ${cargo.rate_per_km || "-"} ₽/км`,
+              reply_markup:{
+                inline_keyboard:[
+                  [
+                    { text:"✅ Принять", callback_data:`accept_${responseId}` },
+                    { text:"❌ Отказаться", callback_data:`reject_${responseId}` }
+                  ],
+                  [
+                    { text:"🗺 Открыть карту", web_app:{ url:"https://dalnoboybros.ru?v=138" } }
+                  ]
+                ]
+              }
+            })
+          }
+        );
+      } catch(e) {
+        console.error("telegram offer notify error", e);
+      }
+    }
+
+    io.emit("cargo_offered", {
+      cargo_id: cargo.id,
+      driver_id: driver.driver_id,
+      response_id: responseId
+    });
+
+    res.json({
+      success:true,
+      response_id: responseId
+    });
+
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ success:false, error:e.message });
+  }
+});
+
+
+
 app.get("/", (req, res) => {
   res.sendFile("/root/dalnoboy/web/map.html");
 });
