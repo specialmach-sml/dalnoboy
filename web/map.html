@@ -916,6 +916,7 @@ function loadAvailableTrucks(cargoId) {
           '📦 ' + (t.body_type || '-') + ' · ' + (t.capacity_tons || '-') + ' т / ' + (t.volume_m3 || '-') + ' м³<br>' +
           '💰 Мин. ставка: ' + (t.min_rate_per_km || '-') + ' ₽/км<br>' +
           '🔥 Совпадение: ' + score + '%<br>' +
+          '🤖 Почему: ' + fitReasons.join(' · ') + '<br>' +
           '<a class="btn" href="https://t.me/dalnoboybros_bot?start=user_' + t.driver_id + '" target="_blank">💬 Профиль</a>';
 
         card.onclick = () => {
