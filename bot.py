@@ -1410,7 +1410,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{cargo_id}")],
-                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=140"))]
+                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=141"))]
                 ])
             )
             return
@@ -4298,6 +4298,24 @@ async def deal_chat_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Сообщение отправлено в сделку #{deal_id}")
 
 
+
+async def emit_deal_status(deal_id, status, status_text=None, cargo_id=None):
+    try:
+        async with aiohttp.ClientSession() as session:
+            await session.post(
+                "http://localhost:5000/api/realtime/deal-status",
+                json={
+                    "deal_id": deal_id,
+                    "status": status,
+                    "status_text": status_text or status,
+                    "cargo_id": cargo_id
+                },
+                timeout=5
+            )
+    except Exception as e:
+        logging.warning(f"emit_deal_status failed: {e}")
+
+
 async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -4375,6 +4393,13 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await context.bot.send_message(chat_id=chat_id, text=notify_text)
         except Exception as e:
             logging.warning(f"Notify failed for {chat_id}: {e}")
+
+    await emit_deal_status(
+        deal_id,
+        status,
+        status_text=status_text,
+        cargo_id=deal["cargo_id"]
+    )
 
     await q.message.reply_text(
         f"💬 Переговоры #{deal_id}: статус изменён на {status_text}"
@@ -5516,7 +5541,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [
                 InlineKeyboardButton(
                     "🗺 Открыть карту",
-                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=140")
+                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=141")
                 )
             ]
         ])

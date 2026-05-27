@@ -1210,6 +1210,31 @@ app.post("/api/realtime/response-status", async (req, res) => {
 
 
 
+app.post("/api/realtime/deal-status", async (req, res) => {
+  try {
+    const { deal_id, cargo_id, status, status_text } = req.body;
+
+    if (!deal_id || !status) {
+      return res.status(400).json({ success:false, error:"deal_id_status_required" });
+    }
+
+    io.emit("deal_status_updated", {
+      deal_id,
+      cargo_id: cargo_id || null,
+      status,
+      status_text: status_text || status,
+      updated_at: new Date().toISOString()
+    });
+
+    res.json({ success:true });
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ success:false, error:e.message });
+  }
+});
+
+
+
 app.get("/", (req, res) => {
   res.sendFile("/root/dalnoboy/web/map.html");
 });

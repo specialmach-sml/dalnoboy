@@ -1226,6 +1226,28 @@ function loadActiveTrucks() {
 
 
 
+
+
+function markDealStatus(cargoId, statusText) {
+  const cards = document.querySelectorAll('.cargo-card');
+
+  cards.forEach(card => {
+    if (!card.innerHTML.includes('Груз #' + cargoId)) return;
+
+    const badge = '<div style="margin-top:6px;font-weight:800;">📊 Рейс: ' + statusText + '</div>';
+
+    if (!card.innerHTML.includes('📊 Рейс:')) {
+      card.innerHTML += badge;
+    } else {
+      card.innerHTML = card.innerHTML.replace(
+        /<div style="margin-top:6px;font-weight:800;">📊 Рейс: .*?<\/div>/,
+        badge
+      );
+    }
+  });
+}
+
+
 function markDriverOfferStatus(driverId, status) {
   const cards = document.querySelectorAll('.cargo-card');
 
@@ -1314,6 +1336,13 @@ try {
   socket.on('response_status_updated', (data) => {
     console.log('response_status_updated', data);
     markDriverOfferStatus(data.truck_id || data.driver_id, data.status);
+  });
+
+  socket.on('deal_status_updated', (data) => {
+    console.log('deal_status_updated', data);
+    if (data.cargo_id) {
+      markDealStatus(data.cargo_id, data.status_text || data.status);
+    }
   });
 } catch(e) {
   console.log('socket init error', e.message);
