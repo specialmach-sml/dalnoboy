@@ -4036,6 +4036,13 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
             ],
             [
+                InlineKeyboardButton("📄 Документы", callback_data=f"deal_docs_{r['id']}"),
+                InlineKeyboardButton("📸 Фото загрузки", callback_data=f"deal_loadphoto_{r['id']}")
+            ],
+            [
+                InlineKeyboardButton("📸 Фото выгрузки", callback_data=f"deal_unloadphoto_{r['id']}")
+            ],
+            [
                 InlineKeyboardButton(
                     "✅ Закрыть спор" if r["dispute"] else "⚠️ Открыть спор",
                     callback_data=f"deal_closedispute_{r['id']}" if r["dispute"] else f"deal_dispute_{r['id']}"
@@ -4200,6 +4207,114 @@ async def deal_write_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+
+
+async def deal_docs_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    parts = q.data.split("_")
+
+    mode = parts[1]
+    deal_id = int(parts[2])
+
+    doc_type = "document"
+
+    if mode == "adddoc":
+        doc_type = "document"
+
+    if mode == "loadphoto":
+        doc_type = "load_photo"
+
+    if mode == "unloadphoto":
+        doc_type = "unload_photo"
+
+    if doc_type == "document":
+        rows = await DB.fetch("""
+            SELECT
+                doc_type,
+                file_id,
+                file_name,
+                created_at
+            FROM deal_documents
+            WHERE deal_id=$1
+            ORDER BY id DESC
+            LIMIT 10
+        """, deal_id)
+
+        text = f"📄 Документы сделки #{deal_id}\n\n"
+
+        if rows:
+            for d in rows:
+                text += f"• {d['doc_type']} — {d['file_name'] or 'file'} — {d['created_at'].strftime('%d.%m %H:%M')}\n"
+        else:
+            text += "Пока документов нет.\n"
+
+        await q.message.reply_text(
+            text,
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ Добавить файл", callback_data=f"deal_adddoc_{deal_id}")]
+            ])
+        )
+        return
+
+    context.user_data["deal_upload_id"] = deal_id
+    context.user_data["deal_upload_type"] = doc_type
+
+    await q.message.reply_text(
+        f"📤 Отправьте файл или фото для сделки #{deal_id}\n\n"
+        f"Тип: {doc_type}\n"
+        f"Отмена: /cancel"
+    )
+
+
+async def deal_document_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    deal_id = context.user_data.get("deal_upload_id")
+
+    if not deal_id:
+        return
+
+    doc_type = context.user_data.get("deal_upload_type", "document")
+
+    user_id = await ensure_user(update.effective_user)
+
+    file_id = None
+    file_name = None
+
+    if update.message.document:
+        file_id = update.message.document.file_id
+        file_name = update.message.document.file_name
+
+    elif update.message.photo:
+        file_id = update.message.photo[-1].file_id
+        file_name = "photo.jpg"
+
+    else:
+        return
+
+    await DB.execute("""
+        INSERT INTO deal_documents (
+            deal_id,
+            uploaded_by,
+            doc_type,
+            file_id,
+            file_name
+        )
+        VALUES ($1,$2,$3,$4,$5)
+    """,
+        deal_id,
+        user_id,
+        doc_type,
+        file_id,
+        file_name
+    )
+
+    context.user_data.pop("deal_upload_id", None)
+    context.user_data.pop("deal_upload_type", None)
+
+    await update.message.reply_text(
+        f"✅ Документ сохранён в сделке #{deal_id}"
+    )
 
 
 async def deal_history_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6408,6 +6523,7 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
+    app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, deal_document_message), group=-1)
     app.add_handler(MessageHandler(filters.PHOTO, truck_photo_message))
     app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, truck_edit_message))
@@ -6503,6 +6619,7 @@ def main():
     app.add_handler(CallbackQueryHandler(deal_write_help, pattern="^deal_write_help_"))
     app.add_handler(CallbackQueryHandler(deal_history_button, pattern="^deal_history_"))
     app.add_handler(CallbackQueryHandler(deal_timeline_button, pattern="^deal_timeline_"))
+    app.add_handler(CallbackQueryHandler(deal_docs_button, pattern="^deal_(docs|adddoc|loadphoto|unloadphoto)_"))
     app.add_handler(CallbackQueryHandler(deal_chat_button, pattern="^deal_chat_"))
     app.add_handler(CallbackQueryHandler(deal_action, pattern="^deal_"))
     app.add_handler(CallbackQueryHandler(review_action, pattern="^review_"))
