@@ -4232,6 +4232,7 @@ async def deal_docs_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if doc_type == "document":
         rows = await DB.fetch("""
             SELECT
+                id,
                 doc_type,
                 file_id,
                 file_name,
@@ -4250,11 +4251,21 @@ async def deal_docs_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text += "Пока документов нет.\n"
 
+        buttons = []
+
+        for d in rows:
+            buttons.append([
+                InlineKeyboardButton(
+                    f"📎 {d['file_name'] or d['doc_type']} #{d['id']}",
+                    callback_data=f"deal_opendoc_{d['id']}"
+                )
+            ])
+
+        buttons.append([InlineKeyboardButton("➕ Добавить файл", callback_data=f"deal_adddoc_{deal_id}")])
+
         await q.message.reply_text(
             text,
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("➕ Добавить файл", callback_data=f"deal_adddoc_{deal_id}")]
-            ])
+            reply_markup=InlineKeyboardMarkup(buttons)
         )
         return
 
@@ -4266,6 +4277,43 @@ async def deal_docs_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Тип: {doc_type}\n"
         f"Отмена: /cancel"
     )
+
+
+async def deal_open_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    doc_id = int(q.data.split("_")[-1])
+
+    doc = await DB.fetchrow("""
+        SELECT
+            id,
+            deal_id,
+            doc_type,
+            file_id,
+            file_name
+        FROM deal_documents
+        WHERE id=$1
+    """, doc_id)
+
+    if not doc:
+        await q.message.reply_text("❌ Документ не найден")
+        return
+
+    caption = f"📎 {doc['file_name'] or doc['doc_type']}\\nСделка #{doc['deal_id']}"
+
+    if doc["doc_type"] in ["load_photo", "unload_photo"] or (doc["file_name"] or "").lower().endswith((".jpg", ".jpeg", ".png")):
+        await context.bot.send_photo(
+            chat_id=q.message.chat_id,
+            photo=doc["file_id"],
+            caption=caption
+        )
+    else:
+        await context.bot.send_document(
+            chat_id=q.message.chat_id,
+            document=doc["file_id"],
+            caption=caption
+        )
 
 
 async def deal_document_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6620,6 +6668,7 @@ def main():
     app.add_handler(CallbackQueryHandler(deal_history_button, pattern="^deal_history_"))
     app.add_handler(CallbackQueryHandler(deal_timeline_button, pattern="^deal_timeline_"))
     app.add_handler(CallbackQueryHandler(deal_docs_button, pattern="^deal_(docs|adddoc|loadphoto|unloadphoto)_"))
+    app.add_handler(CallbackQueryHandler(deal_open_document, pattern="^deal_opendoc_"))
     app.add_handler(CallbackQueryHandler(deal_chat_button, pattern="^deal_chat_"))
     app.add_handler(CallbackQueryHandler(deal_action, pattern="^deal_"))
     app.add_handler(CallbackQueryHandler(review_action, pattern="^review_"))
