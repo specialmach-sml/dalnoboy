@@ -2,9 +2,18 @@ import aiohttp
 import asyncio
 import logging
 import shutil
+import qrcode
 import subprocess
 from datetime import datetime
 import asyncpg
+
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.lib import colors
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.cidfonts import UnicodeCIDFont
+from reportlab.pdfbase.ttfonts import TTFont
+
 
 from math import radians, sin, cos, sqrt, atan2
 
@@ -1410,7 +1419,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{cargo_id}")],
-                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=141"))]
+                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=142"))]
                 ])
             )
             return
@@ -4053,7 +4062,11 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         ]
 
-        if r["status"] == "done":
+        if r["status"] in ("done", "delivered"):
+            buttons.append([
+                InlineKeyboardButton("✅ Закрыть рейс", callback_data=f"deal_closed_{r['id']}"),
+                InlineKeyboardButton("📄 Акт перевозки", callback_data=f"deal_act_{r['id']}")
+            ])
             buttons.append([
                 InlineKeyboardButton("⭐ Оценить", callback_data=f"review_{r['id']}")
             ])
@@ -4524,6 +4537,7 @@ async def deal_timeline_button(update: Update, context: ContextTypes.DEFAULT_TYP
         "in_progress": "🚚 В пути",
         "done": "✅ Доставлено",
         "delivered": "🏁 Доставлен",
+        "closed": "✅ Рейс закрыт",
         "cancelled": "❌ Отменено"
     }
 
@@ -4536,6 +4550,350 @@ async def deal_timeline_button(update: Update, context: ContextTypes.DEFAULT_TYP
         text += f"{dt} — {label}\\n👤 {who}\\n\\n"
 
     await q.message.reply_text(text)
+
+
+async def dealact(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Использование: /dealact ID")
+        return
+
+    try:
+        deal_id = int(context.args[0])
+    except:
+        await update.message.reply_text("❌ Неверный ID")
+        return
+
+    deal = await DB.fetchrow("""
+        SELECT
+            d.id,
+            d.status,
+            d.created_at,
+            d.updated_at,
+            c.id AS cargo_id,
+            c.from_city,
+            c.to_city,
+            c.description,
+            c.price_amount,
+            c.price_currency,
+            c.distance_km,
+            c.rate_per_km,
+            t.id AS truck_id,
+            t.body_type,
+            t.capacity_tons,
+            t.volume_m3,
+            owner.full_name AS owner_name,
+            driver.full_name AS driver_name
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        JOIN users owner ON owner.id = c.created_by
+        LEFT JOIN responses r ON r.id = d.response_id
+        JOIN users driver ON driver.id = COALESCE(r.driver_id, t.driver_id)
+        WHERE d.id=$1
+    """, deal_id)
+
+    if not deal:
+        await update.message.reply_text("❌ Сделка не найдена")
+        return
+
+    pdfmetrics.registerFont(TTFont("DejaVu", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
+
+    path = f"/tmp/dalnoboy_deal_{deal_id}_act.pdf"
+
+    styles = getSampleStyleSheet()
+    for st in styles.byName.values():
+        st.fontName = "DejaVu"
+
+    style = styles["Normal"]
+    title = styles["Title"]
+
+    doc = SimpleDocTemplate(path, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+
+    story.append(Paragraph(f"DALNOBOY BROS — АКТ ВЫПОЛНЕННОЙ ПЕРЕВОЗКИ №{deal_id}", title))
+    story.append(Spacer(1, 16))
+
+    rows = [
+        ["Параметр", "Значение"],
+        ["Сделка", f"#{deal['id']}"],
+        ["Груз", f"#{deal['cargo_id']}"],
+        ["Маршрут", f"{deal['from_city']} → {deal['to_city']}"],
+        ["Описание", deal["description"] or "-"],
+        ["Цена", f"{format_price(deal['price_amount'])} {deal['price_currency'] or ''}"],
+        ["Дистанция", f"{deal['distance_km'] or '-'} км"],
+        ["Ставка", f"{deal['rate_per_km'] or '-'} ₽/км"],
+        ["Машина", f"#{deal['truck_id']} {deal['body_type'] or ''}"],
+        ["Параметры", f"{deal['capacity_tons'] or '-'} т / {deal['volume_m3'] or '-'} м³"],
+        ["Заказчик", deal["owner_name"] or "-"],
+        ["Перевозчик", deal["driver_name"] or "-"],
+        ["Статус", "Рейс закрыт / перевозка выполнена"],
+    ]
+
+    table = Table(rows, colWidths=[150, 360])
+    table.setStyle(TableStyle([
+        ("FONTNAME", (0,0), (-1,-1), "DejaVu"),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+        ("PADDING", (0,0), (-1,-1), 7),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+    ]))
+    story.append(table)
+
+    story.append(Spacer(1, 18))
+    story.append(Paragraph(
+        "Стороны подтверждают, что перевозка выполнена. "
+        "Претензии по факту выполнения перевозки фиксируются отдельно в переписке сделки.",
+        style
+    ))
+
+    docs_count = await DB.fetchval("SELECT COUNT(*) FROM deal_documents WHERE deal_id=$1", deal_id)
+    story.append(Spacer(1, 12))
+    story.append(Paragraph(f"Документов в архиве сделки: {docs_count}", style))
+
+    story.append(Spacer(1, 28))
+    sign_table = Table([
+        ["Заказчик", "Перевозчик"],
+        ["____________________", "____________________"],
+        ["подпись", "подпись"],
+    ], colWidths=[250, 250])
+    sign_table.setStyle(TableStyle([
+        ("FONTNAME", (0,0), (-1,-1), "DejaVu"),
+        ("ALIGN", (0,0), (-1,-1), "CENTER"),
+        ("PADDING", (0,0), (-1,-1), 8),
+    ]))
+    story.append(sign_table)
+
+    doc.build(story)
+
+    sent = await update.message.reply_document(
+        document=open(path, "rb"),
+        filename=f"deal_{deal_id}_act.pdf",
+        caption=f"📄 Акт выполненной перевозки по сделке #{deal_id}"
+    )
+
+    try:
+        await DB.execute("""
+            INSERT INTO generated_documents (
+                deal_id,
+                doc_type,
+                telegram_file_id
+            )
+            VALUES ($1,'deal_act_pdf',$2)
+        """, deal_id, sent.document.file_id)
+    except Exception as e:
+        logging.warning(f"save generated act failed: {e}")
+
+
+async def deal_act_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    deal_id = int(q.data.split("_")[-1])
+    fake_update = Update(update.update_id, message=q.message)
+    context.args = [str(deal_id)]
+
+    return await dealact(fake_update, context)
+
+
+async def dealpdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Использование: /dealpdf ID")
+        return
+
+    try:
+        deal_id = int(context.args[0])
+    except:
+        await update.message.reply_text("❌ Неверный ID")
+        return
+
+    deal = await DB.fetchrow("""
+        SELECT
+            d.id,
+            d.status,
+            c.id AS cargo_id,
+            c.from_city,
+            c.to_city,
+            c.description,
+            c.price_amount,
+            c.price_currency,
+            c.distance_km,
+            c.rate_per_km,
+            t.id AS truck_id,
+            t.current_city,
+            t.body_type,
+            t.capacity_tons,
+            t.volume_m3,
+            owner.full_name AS owner_name,
+            driver.full_name AS driver_name
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        JOIN users owner ON owner.id = c.created_by
+        LEFT JOIN responses r ON r.id = d.response_id
+        JOIN users driver ON driver.id = COALESCE(r.driver_id, t.driver_id)
+        WHERE d.id=$1
+    """, deal_id)
+
+    if not deal:
+        await update.message.reply_text("❌ Сделка не найдена")
+        return
+
+    pdfmetrics.registerFont(TTFont("DejaVu", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"))
+
+    path = f"/tmp/dalnoboy_deal_{deal_id}.pdf"
+
+    styles = getSampleStyleSheet()
+    style = styles["Normal"]
+    style.fontName = "DejaVu"
+    style.fontSize = 10
+    style.leading = 14
+
+    title = styles["Title"]
+    title.fontName = "DejaVu"
+
+    doc = SimpleDocTemplate(path, rightMargin=36, leftMargin=36, topMargin=36, bottomMargin=36)
+    story = []
+
+    verify_url = f"https://dalnoboybros.ru/deal/{deal_id}"
+    qr_path = f"/tmp/dalnoboy_deal_{deal_id}_qr.png"
+    qrcode.make(verify_url).save(qr_path)
+
+    story.append(Paragraph(f"DALNOBOY BROS — ЗАЯВКА НА ПЕРЕВОЗКУ №{deal_id}", title))
+    story.append(Spacer(1, 10))
+
+    logo_path = "/root/dalnoboy/src/assets/hero.png"
+
+    left_block = Table([
+        [
+            Image(logo_path, width=120, height=60)
+        ],
+        [
+            Paragraph(
+                "Цифровая заявка на перевозку<br/>"
+                f"Проверка документа: {verify_url}",
+                style
+            )
+        ]
+    ])
+
+    header_table = Table([
+        [
+            left_block,
+            Image(qr_path, width=80, height=80)
+        ]
+    ], colWidths=[400, 100])
+
+    header_table.setStyle(TableStyle([
+        ("FONTNAME", (0,0), (-1,-1), "DejaVu"),
+        ("ALIGN", (1,0), (1,0), "RIGHT"),
+        ("VALIGN", (0,0), (-1,-1), "MIDDLE"),
+    ]))
+
+    story.append(header_table)
+    story.append(Spacer(1, 14))
+
+    main_rows = [
+        ["Параметр", "Значение"],
+        ["Груз", f"#{deal['cargo_id']}"],
+        ["Маршрут", f"{deal['from_city']} → {deal['to_city']}"],
+        ["Описание", deal["description"] or "-"],
+        ["Цена", f"{format_price(deal['price_amount'])} {deal['price_currency'] or ''}"],
+        ["Дистанция", f"{deal['distance_km'] or '-'} км"],
+        ["Ставка", f"{deal['rate_per_km'] or '-'} ₽/км"],
+        ["Статус", human_status(deal["status"])],
+    ]
+
+    main_table = Table(main_rows, colWidths=[150, 360])
+    main_table.setStyle(TableStyle([
+        ("FONTNAME", (0,0), (-1,-1), "DejaVu"),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+        ("VALIGN", (0,0), (-1,-1), "TOP"),
+        ("PADDING", (0,0), (-1,-1), 7),
+    ]))
+    story.append(main_table)
+    story.append(Spacer(1, 16))
+
+    truck_rows = [
+        ["Машина", f"#{deal['truck_id']} {deal['body_type'] or ''}"],
+        ["Грузоподъёмность", f"{deal['capacity_tons'] or '-'} т / {deal['volume_m3'] or '-'} м³"],
+        ["Заказчик", deal["owner_name"] or "-"],
+        ["Водитель", deal["driver_name"] or "-"],
+    ]
+
+    truck_table = Table(truck_rows, colWidths=[150, 360])
+    truck_table.setStyle(TableStyle([
+        ("FONTNAME", (0,0), (-1,-1), "DejaVu"),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+        ("PADDING", (0,0), (-1,-1), 7),
+    ]))
+    story.append(Paragraph("Участники и транспорт", style))
+    story.append(Spacer(1, 8))
+    story.append(truck_table)
+    story.append(Spacer(1, 16))
+
+    history = await DB.fetch("""
+        SELECT status, created_at
+        FROM deal_status_history
+        WHERE deal_id=$1
+        ORDER BY created_at ASC
+    """, deal_id)
+
+    story.append(Paragraph("Таймлайн рейса", style))
+    story.append(Spacer(1, 8))
+
+    if history:
+        hist_rows = [["Время", "Статус"]]
+        for h in history:
+            hist_rows.append([h["created_at"].strftime("%d.%m.%Y %H:%M"), human_status(h["status"])])
+        hist_table = Table(hist_rows, colWidths=[150, 360])
+        hist_table.setStyle(TableStyle([
+            ("FONTNAME", (0,0), (-1,-1), "DejaVu"),
+            ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+            ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+            ("PADDING", (0,0), (-1,-1), 7),
+        ]))
+        story.append(hist_table)
+    else:
+        story.append(Paragraph("Событий пока нет", style))
+
+    docs_count = await DB.fetchval("SELECT COUNT(*) FROM deal_documents WHERE deal_id=$1", deal_id)
+    story.append(Spacer(1, 16))
+    story.append(Paragraph(f"Документы в сделке: {docs_count}", style))
+
+    story.append(Spacer(1, 28))
+    sign_table = Table([
+        ["Заказчик", "Перевозчик"],
+        ["____________________", "____________________"],
+        ["подпись", "подпись"],
+    ], colWidths=[250, 250])
+    sign_table.setStyle(TableStyle([
+        ("FONTNAME", (0,0), (-1,-1), "DejaVu"),
+        ("ALIGN", (0,0), (-1,-1), "CENTER"),
+        ("PADDING", (0,0), (-1,-1), 8),
+    ]))
+    story.append(sign_table)
+
+    doc.build(story)
+
+    sent = await update.message.reply_document(
+        document=open(path, "rb"),
+        filename=f"deal_{deal_id}_request.pdf",
+        caption=f"📄 PDF-заявка по сделке #{deal_id}"
+    )
+
+    try:
+        file_id = sent.document.file_id
+        await DB.execute("""
+            INSERT INTO generated_documents (
+                deal_id,
+                doc_type,
+                telegram_file_id
+            )
+            VALUES ($1,'deal_request_pdf',$2)
+        """, deal_id, file_id)
+    except Exception as e:
+        logging.warning(f"save generated pdf failed: {e}")
 
 
 async def dealreport(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -4747,6 +5105,7 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "in_progress": "in_progress",
         "done": "done",
         "delivered": "done",
+        "closed": "done",
         "cancelled": "open"
     }.get(status)
 
@@ -5929,7 +6288,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [
                 InlineKeyboardButton(
                     "🗺 Открыть карту",
-                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=141")
+                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=142")
                 )
             ]
         ])
@@ -6742,6 +7101,8 @@ def main():
     app.add_handler(CommandHandler("deals", deals_list))
     app.add_handler(CommandHandler("dealtimeline", dealtimeline))
     app.add_handler(CommandHandler("dealreport", dealreport))
+    app.add_handler(CommandHandler("dealpdf", dealpdf))
+    app.add_handler(CommandHandler("dealact", dealact))
     app.add_handler(CommandHandler("matching", matching))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text))
     app.add_handler(CommandHandler("profile", profile))
@@ -6781,6 +7142,7 @@ def main():
     app.add_handler(CallbackQueryHandler(deal_history_button, pattern="^deal_history_"))
     app.add_handler(CallbackQueryHandler(deal_timeline_button, pattern="^deal_timeline_"))
     app.add_handler(CallbackQueryHandler(deal_report_button, pattern="^deal_report_"))
+    app.add_handler(CallbackQueryHandler(deal_act_button, pattern="^deal_act_"))
     app.add_handler(CallbackQueryHandler(deal_docs_button, pattern="^deal_(docs|adddoc|loadphoto|unloadphoto)_"))
     app.add_handler(CallbackQueryHandler(deal_open_document, pattern="^deal_opendoc_"))
     app.add_handler(CallbackQueryHandler(deal_chat_button, pattern="^deal_chat_"))
