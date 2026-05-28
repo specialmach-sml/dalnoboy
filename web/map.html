@@ -449,6 +449,7 @@ async function findPickupAddress() {
   if (!point) return;
 
   pickupPoint = L.latLng(point.lat, point.lon);
+  document.getElementById('pickupAddress').value = point.name;
 
   if (pickupMarker) map.removeLayer(pickupMarker);
 
@@ -458,6 +459,10 @@ async function findPickupAddress() {
     .openPopup();
 
   map.setView(pickupPoint, 13);
+
+  if (dropoffPoint) {
+    drawSelectedRoute();
+  }
 }
 
 async function findDropoffAddress() {
@@ -472,6 +477,7 @@ async function findDropoffAddress() {
   if (!point) return;
 
   dropoffPoint = L.latLng(point.lat, point.lon);
+  document.getElementById('dropoffAddress').value = point.name;
 
   if (dropoffMarker) map.removeLayer(dropoffMarker);
 
@@ -516,6 +522,9 @@ function drawSelectedRoute() {
       map.fitBounds(routeLine.getBounds(), {
         padding: [50, 50]
       });
+
+      const km = Math.round((routeData.routes[0].distance / 1000) * 10) / 10;
+      console.log('route distance km', km);
     });
 }
 
@@ -1294,36 +1303,60 @@ function updateTruckMarkerLive(t) {
 
   if (!id || !lat || !lon) return;
 
-  const updatedAt = t.updated_at || t.location_updated_at || new Date().toISOString();
-  const updatedText = new Date(updatedAt).toLocaleString();
+  const updatedAt =
+    t.updated_at ||
+    t.location_updated_at ||
+    new Date().toISOString();
+
+  const updatedText =
+    new Date(updatedAt).toLocaleString();
+
+  const ageMinutes =
+    (Date.now() - new Date(updatedAt).getTime()) / 60000;
+
+  let statusText = '⚫ offline';
+
+  if (ageMinutes <= 5) {
+    statusText = '🟢 online';
+  } else if (ageMinutes <= 30) {
+    statusText = '🟡 недавно';
+  }
 
   let marker = truckMarkersById[id];
 
+  const popupHtml =
+    '<b>🚚 Машина #' + id + '</b><br>' +
+    '📡 Статус: ' + statusText + '<br>' +
+    '🕒 GEO: ' + updatedText + '<br>' +
+    '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4);
+
   if (marker) {
+
     marker.setLatLng([lat, lon]);
-    marker.setIcon(truckIconByFreshness(updatedAt));
-    marker.setPopupContent(
-      '<b>🚚 Машина #' + id + '</b><br>' +
-      '🕒 GEO: ' + updatedText + '<br>' +
-      '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4)
+
+    marker.setIcon(
+      truckIconByFreshness(updatedAt)
     );
+
+    marker.setPopupContent(popupHtml);
+
   } else {
+
     marker = L.marker([lat, lon], {
       icon: truckIconByFreshness(updatedAt),
       zIndexOffset: 1000
-    }).bindPopup(
-      '<b>🚚 Машина #' + id + '</b><br>' +
-      '🕒 GEO: ' + updatedText + '<br>' +
-      '📍 ' + lat.toFixed(4) + ', ' + lon.toFixed(4)
-    );
+    }).bindPopup(popupHtml);
 
     truckMarkersById[id] = marker;
+
     truckMarkers.push(marker);
 
     if (trucksVisible) {
       marker.addTo(map);
     }
   }
+
+  marker.lastGeoUpdate = updatedAt;
 }
 
 try {
@@ -1732,5 +1765,79 @@ setInterval(() => {
     background: #ccc;
     margin: 0 auto 8px auto;
   }
+}
+</style>
+
+<style>
+/* Цвет текста на кнопках */
+.btn,
+.btn-blue,
+.btn-green,
+.btn-red,
+button.btn-blue,
+button.btn-green,
+button.btn-red {
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+
+.btn-dark {
+  color: #fff !important;
+}
+
+button,
+.btn-light,
+select,
+input,
+textarea {
+  color: #111 !important;
+}
+
+button[style*="background:white"],
+button[style*="background: white"] {
+  color: #111 !important;
+}
+
+/* Кнопки фильтров на карте */
+.toolbar .btn,
+#panel .btn-green,
+#panel .btn-blue,
+#panel .btn-red {
+  color: #fff !important;
+}
+
+/* Белые элементы */
+#radiusSelect,
+#cityFilter,
+.input {
+  color: #111 !important;
+  background: #fff !important;
+}
+</style>
+
+<style>
+.btn,
+.btn-blue,
+.btn-green,
+.btn-red,
+button.btn-blue,
+button.btn-green,
+button.btn-red {
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+
+button,
+select,
+input,
+textarea,
+.input {
+  color: #111 !important;
+}
+
+#radiusSelect,
+#cityFilter {
+  color: #111 !important;
+  background: #fff !important;
 }
 </style>
