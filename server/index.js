@@ -401,6 +401,7 @@ app.get("/api/nearby", async (req, res) => {
 app.post("/api/cargo/create", async (req, res) => {
   try {
     const {
+      telegram_id,
       from_city,
       to_city,
       description,
@@ -413,6 +414,19 @@ app.post("/api/cargo/create", async (req, res) => {
       weight_tons,
       volume_m3
     } = req.body;
+
+    let createdBy = null;
+
+    if (telegram_id) {
+      const userRes = await pool.query(
+        "SELECT id FROM users WHERE telegram_id=$1 LIMIT 1",
+        [telegram_id]
+      );
+
+      if (userRes.rows.length) {
+        createdBy = userRes.rows[0].id;
+      }
+    }
 
     const price = Number(price_amount || 0);
     const dist = Number(distance_km || 0);
@@ -432,10 +446,11 @@ app.post("/api/cargo/create", async (req, res) => {
         rate_per_km,
         weight_tons,
         volume_m3,
+        created_by,
         status
       )
       VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'open'
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'open'
       )
       RETURNING
         id,
@@ -452,6 +467,7 @@ app.post("/api/cargo/create", async (req, res) => {
         unload_longitude,
         weight_tons,
         volume_m3,
+        created_by,
         status
     `, [
       from_city,
@@ -465,7 +481,8 @@ app.post("/api/cargo/create", async (req, res) => {
       dist,
       rate,
       Number(weight_tons || 0) || null,
-      Number(volume_m3 || 0) || null
+      Number(volume_m3 || 0) || null,
+      createdBy
     ]);
 
     io.emit("cargo_created", q.rows[0]);
