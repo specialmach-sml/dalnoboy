@@ -66,7 +66,51 @@ TRUCK_COMMENT = 24
 
 
 
-def main_reply_keyboard(role="carrier", verified=True):
+
+
+async def get_user_roles(tg_id):
+    user = await DB.fetchrow("""
+        SELECT id, role, verified, banned
+        FROM users
+        WHERE telegram_id=$1
+    """, tg_id)
+
+    if not user:
+        return {
+            "user_id": None,
+            "roles": [],
+            "primary_role": "carrier",
+            "verified": False,
+            "banned": False
+        }
+
+    rows = await DB.fetch("""
+        SELECT role
+        FROM user_roles
+        WHERE user_id=$1
+          AND verified=true
+          AND active=true
+          AND (expires_at IS NULL OR expires_at > now())
+    """, user["id"])
+
+    roles = [r["role"] for r in rows]
+
+    # Совместимость со старым users.role
+    if user["verified"] and user["role"] not in roles:
+        roles.append(user["role"])
+
+    return {
+        "user_id": user["id"],
+        "roles": roles,
+        "primary_role": user["role"] or "carrier",
+        "verified": bool(user["verified"]),
+        "banned": bool(user["banned"])
+    }
+
+
+def main_reply_keyboard(role="carrier", verified=True, roles=None):
+    roles = roles or ([role] if role else [])
+
     if not verified:
         return ReplyKeyboardMarkup(
             [
@@ -78,30 +122,53 @@ def main_reply_keyboard(role="carrier", verified=True):
             is_persistent=True
         )
 
-    if role == "admin":
-        rows = [
+    rows = []
+
+    if "admin" in roles:
+        rows += [
             ["🗺 Карта"],
             ["📦 Грузы", "📋 Мои грузы"],
             ["🚚 Машина", "📨 Отклики"],
             ["👤 Профиль", "⚙️ Настройки"],
             ["🛡 Админ"]
         ]
-    elif role == "dispatcher":
-        rows = [
-            ["🗺 Карта"],
-            ["➕ Груз", "📋 Мои грузы"],
-            ["📨 Отклики", "👤 Профиль"]
-        ]
     else:
-        rows = [
-            ["🗺 Карта"],
-            ["📦 Грузы", "🚚 Машина"],
-            ["📍 Рядом", "🟢 Выгодные"],
-            ["📨 Отклики", "👤 Профиль"]
+        if "carrier" in roles:
+            rows += [
+                ["🗺 Карта"],
+                ["📦 Грузы", "🚚 Машина"],
+                ["📍 Рядом", "🟢 Выгодные"]
+            ]
+
+        if "shipper" in roles:
+            rows += [
+                ["➕ Груз", "📋 Мои грузы"],
+                ["📨 Отклики", "🤝 Сделки"]
+            ]
+
+        if "dispatcher" in roles:
+            rows += [
+                ["➕ Груз", "📋 Мои грузы"],
+                ["🚚 Машины", "📨 Отклики"],
+                ["🤝 Сделки"]
+            ]
+
+        rows += [
+            ["👤 Профиль", "⚙️ Настройки"],
+            ["➕ Запросить роль"]
         ]
 
+    # убрать дубли строк
+    clean = []
+    seen = set()
+    for row in rows:
+        key = tuple(row)
+        if key not in seen:
+            clean.append(row)
+            seen.add(key)
+
     return ReplyKeyboardMarkup(
-        rows,
+        clean,
         resize_keyboard=True,
         one_time_keyboard=False,
         is_persistent=True
@@ -1288,9 +1355,31 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     role_badges = {
         "admin": "🛠 Админ",
         "driver": "🚚 Водитель",
+        "carrier": "🚚 Перевозчик",
+        "shipper": "📦 Грузоотправитель",
         "company": "🏢 Компания",
         "dispatcher": "📡 Диспетчер"
     }
+
+    role_rows = await DB.fetch("""
+        SELECT role, verified, active, paid, expires_at
+        FROM user_roles
+        WHERE user_id=$1
+        ORDER BY role
+    """, user_id)
+
+    if role_rows:
+        roles_text = "\n".join(
+            [
+                f"{'✅' if r['verified'] and r['active'] else '⏳'} "
+                f"{role_badges.get(r['role'], r['role'])}"
+                f"{' 💳' if r['paid'] else ''}"
+                f"{' до ' + str(r['expires_at'].date()) if r['expires_at'] else ''}"
+                for r in role_rows
+            ]
+        )
+    else:
+        roles_text = role_badges.get(role, role)
 
     stats = await DB.fetchrow("""
         SELECT
@@ -1347,7 +1436,7 @@ async def profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = (
         f"👤 {full_name}\n"
         f"{'✅ Проверен' if user_verified else '⚠️ Не проверен'}\n"
-        f"Роль: {role_badges.get(role, role)}\n"
+        f"Роли:\n{roles_text}\n"
         f"Тариф: {plan_badges.get(plan_type, plan_type.upper())}\n"
         + (f"⏳ Тариф до: {plan_expires_at}\n" if plan_expires_at else "")
         + (f"📅 На платформе с: {created_at.date()}\n" if created_at else "")
@@ -1507,15 +1596,12 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-    me = await DB.fetchrow("""
-        SELECT role, verified, banned
-        FROM users
-        WHERE telegram_id=$1
-    """, update.effective_user.id)
+    access = await get_user_roles(update.effective_user.id)
 
-    role = me["role"] if me else "carrier"
-    verified = bool(me["verified"]) if me else False
-    banned = bool(me["banned"]) if me else False
+    role = access["primary_role"]
+    roles = access["roles"]
+    verified = access["verified"]
+    banned = access["banned"]
 
     if banned:
         await update.message.reply_text("⛔ Ваш аккаунт заблокирован")
@@ -1525,13 +1611,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(
             "🚛 Добро пожаловать в Dalnoboy Bros!\n\n"
             "Ваш аккаунт пока не одобрен. Подайте заявку, админ проверит доступ.",
-            reply_markup=main_reply_keyboard(role, verified)
+            reply_markup=main_reply_keyboard(role, verified, roles)
         )
         return
 
     await update.message.reply_text(
         "🚛 Добро пожаловать в Dalnoboy Bros!",
-        reply_markup=main_reply_keyboard(role, verified)
+        reply_markup=main_reply_keyboard(role, verified, roles)
     )
     await menu(update, context)
 
@@ -5992,6 +6078,8 @@ async def nearby_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if radius is None:
         radius = int(truck["search_radius_km"] or 50) if truck else 50
 
+    logging.info(f"nearby_profit radius={radius}, user_id={user_id}, tg={update.effective_user.id}")
+
     url = f"http://localhost:5000/api/nearby?telegram_id={update.effective_user.id}&radius={radius}&profitability=profitable"
 
     async with aiohttp.ClientSession() as session:
@@ -6377,6 +6465,10 @@ async def rate_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
+    logging.info(f"reply_menu_handler text={repr(text)}")
+
+    if text == "📝 Подать заявку":
+        return await access_request_start(update, context)
 
     if context.user_data.get("awaiting_rate"):
         context.user_data["awaiting_rate"] = False
@@ -6697,16 +6789,658 @@ async def admin_setplan_button(update: Update, context: ContextTypes.DEFAULT_TYP
         pass
 
 
-async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    me = await DB.fetchrow("""
+
+
+async def access_request_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [
+        [InlineKeyboardButton("🚚 Я перевозчик", callback_data="access_role_carrier")],
+        [InlineKeyboardButton("📦 Я грузоотправитель", callback_data="access_role_shipper")],
+        [InlineKeyboardButton("📡 Я диспетчер", callback_data="access_role_dispatcher")]
+    ]
+
+    if update.callback_query:
+        q = update.callback_query
+        await q.answer()
+        await q.message.reply_text(
+            "📝 Заявка на доступ\n\nВыберите вашу роль:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+    else:
+        await update.message.reply_text(
+            "📝 Заявка на доступ\n\nВыберите вашу роль:",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+
+async def access_request_role(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    requested_role = q.data.replace("access_role_", "")
+    user_id = await ensure_user(q.from_user)
+
+    existing = await DB.fetchrow("""
+        SELECT id, status
+        FROM access_requests
+        WHERE user_id=$1 AND status='pending'
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    if existing:
+        await q.message.reply_text("⏳ Ваша заявка уже отправлена и ожидает проверки.")
+        return
+
+    req = await DB.fetchrow("""
+        INSERT INTO access_requests (user_id, requested_role, status)
+        VALUES ($1,$2,'pending')
+        RETURNING id
+    """, user_id, requested_role)
+
+    role_names = {
+        "carrier": "перевозчик",
+        "shipper": "грузоотправитель",
+        "dispatcher": "диспетчер"
+    }
+    role_text = role_names.get(requested_role, requested_role)
+
+    await q.message.reply_text(
+        f"✅ Заявка отправлена.\n\n"
+        f"Роль: {role_text}\n"
+        f"Ожидайте одобрения админа."
+    )
+
+    admins = await DB.fetch("""
+        SELECT telegram_id
+        FROM users
+        WHERE role='admin' AND verified=true AND banned=false
+    """)
+
+    for admin in admins:
+        try:
+            await context.bot.send_message(
+                chat_id=admin["telegram_id"],
+                text=(
+                    f"📝 Новая заявка #{req['id']}\n\n"
+                    f"Пользователь: {q.from_user.full_name}\n"
+                    f"Telegram ID: {q.from_user.id}\n"
+                    f"Username: @{q.from_user.username or '-'}\n"
+                    f"Запрошенная роль: {role_text}"
+                ),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Одобрить перевозчика", callback_data=f"access_approve_carrier_{req['id']}")],
+                    [InlineKeyboardButton("✅ Одобрить грузоотправителя", callback_data=f"access_approve_shipper_{req['id']}")],
+                    [InlineKeyboardButton("✅ Одобрить диспетчера", callback_data=f"access_approve_dispatcher_{req['id']}")],
+                    [InlineKeyboardButton("❌ Отклонить", callback_data=f"access_reject_{req['id']}")]
+                ])
+            )
+        except Exception as e:
+            logging.warning(f"access request notify admin failed: {e}")
+
+
+async def access_request_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    admin_id = await ensure_user(q.from_user)
+
+    admin = await DB.fetchrow("""
         SELECT role, verified, banned
         FROM users
-        WHERE telegram_id=$1
-    """, update.effective_user.id)
+        WHERE id=$1
+    """, admin_id)
 
-    role = me["role"] if me else "carrier"
-    verified = bool(me["verified"]) if me else False
-    banned = bool(me["banned"]) if me else False
+    if not admin or admin["role"] != "admin" or not admin["verified"] or admin["banned"]:
+        await q.answer("⛔ Только админ", show_alert=True)
+        return
+
+    parts = q.data.split("_")
+
+    if parts[1] == "reject":
+        req_id = int(parts[2])
+
+        req = await DB.fetchrow("""
+            UPDATE access_requests
+            SET status='rejected', reviewed_by=$2, reviewed_at=now()
+            WHERE id=$1 AND status='pending'
+            RETURNING user_id
+        """, req_id, admin_id)
+
+        if not req:
+            await q.message.reply_text("Заявка уже обработана.")
+            return
+
+        user = await DB.fetchrow("SELECT telegram_id FROM users WHERE id=$1", req["user_id"])
+
+        if user:
+            await context.bot.send_message(
+                chat_id=user["telegram_id"],
+                text="❌ Ваша заявка на доступ отклонена."
+            )
+
+        await q.message.reply_text(f"❌ Заявка #{req_id} отклонена.")
+        return
+
+    role = parts[2]
+    req_id = int(parts[3])
+
+    req = await DB.fetchrow("""
+        UPDATE access_requests
+        SET status='approved', reviewed_by=$2, reviewed_at=now()
+        WHERE id=$1 AND status='pending'
+        RETURNING user_id
+    """, req_id, admin_id)
+
+    if not req:
+        await q.message.reply_text("Заявка уже обработана.")
+        return
+
+    await DB.execute("""
+        UPDATE users
+        SET verified=true, banned=false
+        WHERE id=$1
+    """, req["user_id"])
+
+    await DB.execute("""
+        INSERT INTO user_roles (user_id, role, verified, active, paid)
+        VALUES ($1, $2, true, true, false)
+        ON CONFLICT (user_id, role) DO UPDATE
+        SET verified=true,
+            active=true
+    """, req["user_id"], role)
+
+    user = await DB.fetchrow("SELECT telegram_id FROM users WHERE id=$1", req["user_id"])
+
+    role_names = {
+        "carrier": "перевозчик",
+        "shipper": "грузоотправитель",
+        "dispatcher": "диспетчер"
+    }
+    role_text = role_names.get(role, role)
+
+    if user:
+        await context.bot.send_message(
+            chat_id=user["telegram_id"],
+            text=f"✅ Ваша заявка одобрена.\nРоль: {role_text}\n\nОтправьте /start"
+        )
+
+    await q.message.reply_text(f"✅ Заявка #{req_id} одобрена. Роль: {role_text}")
+
+
+
+
+
+
+async def setcommission(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    dispatcher_id = await ensure_user(update.effective_user)
+
+    access = await get_user_roles(update.effective_user.id)
+    if "dispatcher" not in access["roles"] and "admin" not in access["roles"]:
+        await update.message.reply_text("⛔ Нужна роль диспетчера")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Формат:\n"
+            "/setcommission CLIENT_LINK_ID PERCENT\n\n"
+            "Пример:\n"
+            "/setcommission 1 7"
+        )
+        return
+
+    try:
+        link_id = int(context.args[0])
+        percent = float(context.args[1].replace(",", "."))
+    except ValueError:
+        await update.message.reply_text("❌ ID и процент должны быть числами")
+        return
+
+    if percent < 0 or percent > 50:
+        await update.message.reply_text("❌ Комиссия должна быть от 0 до 50%")
+        return
+
+    row = await DB.fetchrow("""
+        UPDATE dispatcher_clients
+        SET commission_percent=$1
+        WHERE id=$2
+          AND dispatcher_user_id=$3
+        RETURNING id, client_user_id, client_type, commission_percent
+    """, percent, link_id, dispatcher_id)
+
+    if not row:
+        await update.message.reply_text("❌ Клиент не найден или не принадлежит вам")
+        return
+
+    client = await DB.fetchrow("""
+        SELECT full_name, telegram_id
+        FROM users
+        WHERE id=$1
+    """, row["client_user_id"])
+
+    await update.message.reply_text(
+        f"✅ Комиссия обновлена\n\n"
+        f"Клиент: {client['full_name'] or '-'}\n"
+        f"Telegram ID: {client['telegram_id']}\n"
+        f"Комиссия: {row['commission_percent']}%"
+    )
+
+
+async def dispatcher_clients_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    dispatcher_id = await ensure_user(q.from_user)
+
+    rows = await DB.fetch("""
+        SELECT
+            dc.id,
+            dc.client_type,
+            dc.status,
+            dc.commission_percent,
+            u.full_name,
+            u.telegram_id
+        FROM dispatcher_clients dc
+        JOIN users u ON u.id = dc.client_user_id
+        WHERE dc.dispatcher_user_id=$1
+        ORDER BY dc.created_at DESC
+        LIMIT 20
+    """, dispatcher_id)
+
+    if not rows:
+        await q.message.reply_text("👥 У вас пока нет клиентов.")
+        return
+
+    keyboard = []
+    for r in rows:
+        kind = "🚚" if r["client_type"] == "carrier" else "📦"
+        name = r["full_name"] or str(r["telegram_id"])
+        keyboard.append([
+            InlineKeyboardButton(
+                f"#{r['id']} {kind} {name} — {r['commission_percent'] or 0}%",
+                callback_data=f"dispatcher_client_{r['id']}"
+            )
+        ])
+
+    await q.message.reply_text(
+        "👥 Ваши клиенты\n\nВыберите клиента:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+
+
+async def dispatcher_client_card_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    dispatcher_id = await ensure_user(q.from_user)
+    link_id = int(q.data.split("_")[-1])
+
+    r = await DB.fetchrow("""
+        SELECT
+            dc.id,
+            dc.client_user_id,
+            dc.client_type,
+            dc.status,
+            dc.commission_percent,
+            u.full_name,
+            u.telegram_id,
+            u.telegram_username
+        FROM dispatcher_clients dc
+        JOIN users u ON u.id = dc.client_user_id
+        WHERE dc.id=$1
+          AND dc.dispatcher_user_id=$2
+    """, link_id, dispatcher_id)
+
+    if not r:
+        await q.message.reply_text("❌ Клиент не найден")
+        return
+
+    kind = "🚚 Перевозчик" if r["client_type"] == "carrier" else "📦 Грузоотправитель"
+    username = f"@{r['telegram_username']}" if r["telegram_username"] else "-"
+
+    text = (
+        f"👤 Клиент #{r['id']}\n\n"
+        f"{kind}\n"
+        f"Имя: {r['full_name'] or '-'}\n"
+        f"Telegram ID: {r['telegram_id']}\n"
+        f"Username: {username}\n"
+        f"Комиссия: {r['commission_percent'] or 0}%\n"
+        f"Статус: {r['status']}"
+    )
+
+    keyboard = [
+        [InlineKeyboardButton("🚚 Машины клиента", callback_data=f"dispatcher_client_trucks_{r['id']}")],
+        [InlineKeyboardButton("🤝 Сделки клиента", callback_data=f"dispatcher_client_deals_{r['id']}")],
+        [InlineKeyboardButton("💰 Изменить комиссию", callback_data=f"dispatcher_client_commission_{r['id']}")],
+        [InlineKeyboardButton("❌ Удалить клиента", callback_data=f"dispatcher_client_remove_{r['id']}")],
+        [InlineKeyboardButton("⬅️ Назад к клиентам", callback_data="dispatcher_clients")]
+    ]
+
+    await q.message.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+
+
+async def dispatcher_client_trucks_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    dispatcher_id = await ensure_user(q.from_user)
+    link_id = int(q.data.split("_")[-1])
+
+    link = await DB.fetchrow("""
+        SELECT client_user_id
+        FROM dispatcher_clients
+        WHERE id=$1
+          AND dispatcher_user_id=$2
+          AND status='active'
+    """, link_id, dispatcher_id)
+
+    if not link:
+        await q.message.reply_text("❌ Клиент не найден")
+        return
+
+    rows = await DB.fetch("""
+        SELECT id, current_city, body_type, capacity_tons, volume_m3, min_rate_per_km, status
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+    """, link["client_user_id"])
+
+    if not rows:
+        await q.message.reply_text("🚚 У клиента пока нет машин.")
+        return
+
+    text = "🚚 Машины клиента\n\n"
+    for t in rows:
+        text += (
+            f"🚚 Машина #{t['id']}\n"
+            f"📍 {t['current_city'] or '-'}\n"
+            f"📦 {t['body_type'] or '-'}\n"
+            f"⚖️ {t['capacity_tons'] or '-'} т | {t['volume_m3'] or '-'} м³\n"
+            f"💰 Мин ставка: {t['min_rate_per_km'] or '-'} ₽/км\n"
+            f"Статус: {t['status'] or '-'}\n\n"
+        )
+
+    await q.message.reply_text(text)
+
+
+
+
+async def dispatcher_client_deals_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    dispatcher_id = await ensure_user(q.from_user)
+    link_id = int(q.data.split("_")[-1])
+
+    link = await DB.fetchrow("""
+        SELECT dc.client_user_id, dc.client_type, dc.commission_percent, u.full_name
+        FROM dispatcher_clients dc
+        JOIN users u ON u.id = dc.client_user_id
+        WHERE dc.id=$1
+          AND dc.dispatcher_user_id=$2
+          AND dc.status='active'
+    """, link_id, dispatcher_id)
+
+    if not link:
+        await q.message.reply_text("❌ Клиент не найден")
+        return
+
+    client_id = link["client_user_id"]
+
+    stats = await DB.fetchrow("""
+        SELECT
+            COUNT(*) FILTER (WHERE d.status IN ('pending','active','in_progress')) AS active_count,
+            COUNT(*) FILTER (WHERE d.status IN ('done','completed')) AS done_count,
+            COALESCE(SUM(CASE WHEN d.status IN ('done','completed') THEN c.price_amount ELSE 0 END), 0) AS turnover
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        LEFT JOIN responses r ON r.id = d.response_id
+        WHERE c.created_by=$1 OR t.driver_id=$1 OR r.driver_id=$1
+    """, client_id)
+
+    rows = await DB.fetch("""
+        SELECT
+            d.id,
+            d.status,
+            c.from_city,
+            c.to_city,
+            c.price_amount,
+            c.price_currency,
+            d.created_at
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        LEFT JOIN responses r ON r.id = d.response_id
+        WHERE c.created_by=$1 OR t.driver_id=$1 OR r.driver_id=$1
+        ORDER BY d.created_at DESC
+        LIMIT 10
+    """, client_id)
+
+    commission = float(link["commission_percent"] or 0)
+    turnover = float(stats["turnover"] or 0)
+    dispatcher_income = turnover * commission / 100
+
+    text = (
+        f"🤝 Сделки клиента\n\n"
+        f"👤 {link['full_name'] or '-'}\n"
+        f"Активных: {stats['active_count'] or 0}\n"
+        f"Завершено: {stats['done_count'] or 0}\n"
+        f"Оборот завершённых: {format_price(turnover)} ₽\n"
+        f"Комиссия: {commission}%\n"
+        f"Доход диспетчера: {format_price(dispatcher_income)} ₽\n\n"
+    )
+
+    if not rows:
+        text += "Сделок пока нет."
+    else:
+        text += "Последние сделки:\n\n"
+        for d in rows:
+            text += (
+                f"#{d['id']} — {human_status(d['status'])}\n"
+                f"🚩 {d['from_city']} → {d['to_city']}\n"
+                f"💰 {format_price(d['price_amount'])} {d['price_currency'] or 'RUB'}\n\n"
+            )
+
+    await q.message.reply_text(text)
+
+
+
+
+async def dispatcher_client_commission_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    dispatcher_id = await ensure_user(q.from_user)
+    link_id = int(q.data.split("_")[-1])
+
+    row = await DB.fetchrow("""
+        SELECT id
+        FROM dispatcher_clients
+        WHERE id=$1
+          AND dispatcher_user_id=$2
+          AND status='active'
+    """, link_id, dispatcher_id)
+
+    if not row:
+        await q.message.reply_text("❌ Клиент не найден")
+        return
+
+    context.user_data["awaiting_dispatcher_commission_link_id"] = link_id
+
+    await q.message.reply_text(
+        "💰 Введите комиссию диспетчера в процентах\n\n"
+        "Например: 7 или 10"
+    )
+
+
+async def dispatcher_commission_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    link_id = context.user_data.get("awaiting_dispatcher_commission_link_id")
+    if not link_id:
+        return
+
+    dispatcher_id = await ensure_user(update.effective_user)
+
+    text = update.message.text.strip().replace(",", ".")
+
+    try:
+        percent = float(text)
+    except ValueError:
+        await update.message.reply_text("❌ Введите число, например: 7")
+        raise ApplicationHandlerStop
+
+    if percent < 0 or percent > 50:
+        await update.message.reply_text("❌ Комиссия должна быть от 0 до 50%")
+        raise ApplicationHandlerStop
+
+    row = await DB.fetchrow("""
+        UPDATE dispatcher_clients
+        SET commission_percent=$1
+        WHERE id=$2
+          AND dispatcher_user_id=$3
+        RETURNING id, client_user_id, commission_percent
+    """, percent, link_id, dispatcher_id)
+
+    if not row:
+        await update.message.reply_text("❌ Клиент не найден")
+        context.user_data.pop("awaiting_dispatcher_commission_link_id", None)
+        raise ApplicationHandlerStop
+
+    client = await DB.fetchrow("""
+        SELECT full_name, telegram_id
+        FROM users
+        WHERE id=$1
+    """, row["client_user_id"])
+
+    context.user_data.pop("awaiting_dispatcher_commission_link_id", None)
+
+    await update.message.reply_text(
+        f"✅ Комиссия обновлена\n\n"
+        f"Клиент: {client['full_name'] or '-'}\n"
+        f"Telegram ID: {client['telegram_id']}\n"
+        f"Комиссия: {row['commission_percent']}%"
+    )
+
+    raise ApplicationHandlerStop
+
+
+async def dispatcher_add_client_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    await q.message.reply_text(
+        "➕ Добавить клиента\n\n"
+        "Пока добавление делаем командой:\n\n"
+        "/addclient TELEGRAM_ID carrier\n"
+        "или\n"
+        "/addclient TELEGRAM_ID shipper\n\n"
+        "Пример:\n"
+        "/addclient 1723796022 carrier"
+    )
+
+
+async def dispatcher_commission_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    dispatcher_id = await ensure_user(q.from_user)
+
+    rows = await DB.fetch("""
+        SELECT client_type, COUNT(*) AS cnt, AVG(commission_percent) AS avg_commission
+        FROM dispatcher_clients
+        WHERE dispatcher_user_id=$1 AND status='active'
+        GROUP BY client_type
+    """, dispatcher_id)
+
+    if not rows:
+        await q.message.reply_text("💰 Комиссия пока не настроена. Клиентов нет.")
+        return
+
+    text = "💰 Комиссия диспетчера\n\n"
+    for r in rows:
+        kind = "🚚 Перевозчики" if r["client_type"] == "carrier" else "📦 Грузоотправители"
+        text += f"{kind}: {r['cnt']} клиентов, средняя комиссия {round(float(r['avg_commission'] or 0), 2)}%\n"
+
+    await q.message.reply_text(text)
+
+
+async def dispatcher_deals_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    await q.message.reply_text(
+        "🤝 Сделки клиентов\n\n"
+        "Раздел подготовлен. Далее подключим сделки клиентов диспетчера."
+    )
+
+
+async def addclient(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    dispatcher_id = await ensure_user(update.effective_user)
+
+    access = await get_user_roles(update.effective_user.id)
+    if "dispatcher" not in access["roles"] and "admin" not in access["roles"]:
+        await update.message.reply_text("⛔ Нужна роль диспетчера")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Формат:\n/addclient TELEGRAM_ID carrier\nили\n/addclient TELEGRAM_ID shipper"
+        )
+        return
+
+    try:
+        client_tg = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ TELEGRAM_ID должен быть числом")
+        return
+
+    client_type = context.args[1]
+
+    if client_type not in ["carrier", "shipper"]:
+        await update.message.reply_text("❌ Тип клиента: carrier или shipper")
+        return
+
+    client = await DB.fetchrow("""
+        SELECT id, full_name
+        FROM users
+        WHERE telegram_id=$1
+    """, client_tg)
+
+    if not client:
+        await update.message.reply_text("❌ Пользователь не найден. Он должен сначала нажать /start в боте.")
+        return
+
+    await DB.execute("""
+        INSERT INTO dispatcher_clients (
+            dispatcher_user_id,
+            client_user_id,
+            client_type,
+            status,
+            commission_percent
+        )
+        VALUES ($1,$2,$3,'active',0)
+        ON CONFLICT (dispatcher_user_id, client_user_id, client_type) DO UPDATE
+        SET status='active'
+    """, dispatcher_id, client["id"], client_type)
+
+    await update.message.reply_text(
+        f"✅ Клиент добавлен\n\n"
+        f"Имя: {client['full_name'] or '-'}\n"
+        f"Telegram ID: {client_tg}\n"
+        f"Тип: {client_type}"
+    )
+
+
+async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    access = await get_user_roles(update.effective_user.id)
+
+    role = access["primary_role"]
+    roles = access["roles"]
+    verified = access["verified"]
+    banned = access["banned"]
 
     if banned:
         await update.message.reply_text("⛔ Ваш аккаунт заблокирован")
@@ -6724,52 +7458,65 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         await update.message.reply_text(
             "Нижнее меню включено 👇",
-            reply_markup=main_reply_keyboard(role, verified)
+            reply_markup=main_reply_keyboard(role, verified, roles)
         )
         return
 
-    if role == "admin":
-        keyboard = [
-            [InlineKeyboardButton("📦 Грузы", callback_data="menu_cargo"),
-             InlineKeyboardButton("➕ Создать груз", callback_data="menu_newcargo")],
-            [InlineKeyboardButton("🚚 Машины", callback_data="menu_truck"),
-             InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby")],
-            [InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals"),
-             InlineKeyboardButton("📨 Отклики", callback_data="menu_responses")],
-            [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
-             InlineKeyboardButton("💳 Тарифы", callback_data="menu_plans")],
+    keyboard = []
+
+    if "admin" in roles:
+        keyboard += [
             [InlineKeyboardButton("🛡 Админ", callback_data="admin_panel"),
-             InlineKeyboardButton("🛟 Поддержка", callback_data="menu_support")]
+             InlineKeyboardButton("👥 Пользователи", callback_data="admin_users")]
         ]
-    elif role == "dispatcher":
-        keyboard = [
-            [InlineKeyboardButton("➕ Создать груз", callback_data="menu_newcargo"),
-             InlineKeyboardButton("📋 Мои грузы", callback_data="menu_mycargo")],
-            [InlineKeyboardButton("📨 Отклики", callback_data="menu_responses"),
-             InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals")],
-            [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
-             InlineKeyboardButton("🛟 Поддержка", callback_data="menu_support")]
-        ]
-    else:
-        keyboard = [
+
+    if "carrier" in roles:
+        keyboard += [
             [InlineKeyboardButton("📦 Грузы", callback_data="menu_cargo"),
              InlineKeyboardButton("🚚 Моя машина", callback_data="menu_truck")],
             [InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby"),
-             InlineKeyboardButton("🟢 Выгодные", callback_data="menu_profit")],
-            [InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals"),
-             InlineKeyboardButton("📨 Отклики", callback_data="menu_responses")],
-            [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
-             InlineKeyboardButton("🛟 Поддержка", callback_data="menu_support")]
+             InlineKeyboardButton("🟢 Выгодные", callback_data="menu_profit")]
         ]
+
+    if "shipper" in roles:
+        keyboard += [
+            [InlineKeyboardButton("➕ Создать груз", callback_data="menu_newcargo"),
+             InlineKeyboardButton("📋 Мои грузы", callback_data="menu_mycargo")],
+            [InlineKeyboardButton("📨 Отклики", callback_data="menu_responses"),
+             InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals")]
+        ]
+
+    if "dispatcher" in roles:
+        keyboard += [
+            [InlineKeyboardButton("👥 Клиенты", callback_data="dispatcher_clients"),
+             InlineKeyboardButton("➕ Добавить клиента", callback_data="dispatcher_add_client")],
+            [InlineKeyboardButton("💰 Комиссия", callback_data="dispatcher_commission"),
+             InlineKeyboardButton("🤝 Сделки клиентов", callback_data="dispatcher_deals")]
+        ]
+
+    keyboard += [
+        [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
+         InlineKeyboardButton("🛟 Поддержка", callback_data="menu_support")],
+        [InlineKeyboardButton("➕ Запросить роль", callback_data="access_request")]
+    ]
+
+    # убрать дубли
+    clean = []
+    seen = set()
+    for row in keyboard:
+        key = tuple(btn.callback_data for btn in row)
+        if key not in seen:
+            clean.append(row)
+            seen.add(key)
 
     await update.message.reply_text(
         "🏠 Главное меню\n\nВыберите действие:",
-        reply_markup=InlineKeyboardMarkup(keyboard)
+        reply_markup=InlineKeyboardMarkup(clean)
     )
 
     await update.message.reply_text(
         "Нижнее меню включено 👇",
-        reply_markup=main_reply_keyboard(role, verified)
+        reply_markup=main_reply_keyboard(role, verified, roles)
     )
 
 
@@ -6793,6 +7540,16 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q.data == "menu_nearby":
         fake_update = Update(update.update_id, message=q.message)
         return await nearby(fake_update, context)
+
+    if q.data == "menu_mycargo":
+        fake_update = Update(update.update_id, message=q.message)
+        return await mycargo(fake_update, context)
+
+    if q.data == "menu_profit":
+        q.message._effective_user = q.from_user
+        context.args = []
+        fake_update = Update(update.update_id, message=q.message)
+        return await nearby_profit(fake_update, context)
 
     if q.data == "menu_plans":
         return await plans(fake_update, context)
@@ -7221,8 +7978,9 @@ def main():
 
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, deal_document_message), group=-1)
     app.add_handler(MessageHandler(filters.PHOTO, truck_photo_message))
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню|📝 Подать заявку|🤝 Сделки|➕ Запросить роль)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, truck_edit_message))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, dispatcher_commission_text), group=-100)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("cargo", cargo))
@@ -7355,6 +8113,19 @@ def main():
     app.add_error_handler(error_handler)
 
     print("🚛 BOT RUNNING")
+    app.add_handler(CallbackQueryHandler(access_request_start, pattern="^access_request$"))
+    app.add_handler(CallbackQueryHandler(access_request_role, pattern="^access_role_"))
+    app.add_handler(CallbackQueryHandler(access_request_admin_action, pattern="^access_(approve|reject)_"))
+    app.add_handler(CallbackQueryHandler(dispatcher_clients_button, pattern="^dispatcher_clients$"))
+    app.add_handler(CallbackQueryHandler(dispatcher_add_client_button, pattern="^dispatcher_add_client$"))
+    app.add_handler(CallbackQueryHandler(dispatcher_commission_button, pattern="^dispatcher_commission$"))
+    app.add_handler(CallbackQueryHandler(dispatcher_deals_button, pattern="^dispatcher_deals$"))
+    app.add_handler(CallbackQueryHandler(dispatcher_client_card_button, pattern="^dispatcher_client_\\d+$"))
+    app.add_handler(CallbackQueryHandler(dispatcher_client_trucks_button, pattern="^dispatcher_client_trucks_\\d+$"))
+    app.add_handler(CallbackQueryHandler(dispatcher_client_deals_button, pattern="^dispatcher_client_deals_\\d+$"))
+    app.add_handler(CallbackQueryHandler(dispatcher_client_commission_button, pattern="^dispatcher_client_commission_\\d+$"))
+    app.add_handler(CommandHandler("addclient", addclient))
+    app.add_handler(CommandHandler("setcommission", setcommission))
     app.run_polling()
 
 if __name__ == "__main__":
