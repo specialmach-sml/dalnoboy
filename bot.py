@@ -66,13 +66,42 @@ TRUCK_COMMENT = 24
 
 
 
-def main_reply_keyboard():
-    return ReplyKeyboardMarkup(
-        [
+def main_reply_keyboard(role="carrier", verified=True):
+    if not verified:
+        return ReplyKeyboardMarkup(
+            [
+                ["📝 Подать заявку"],
+                ["👤 Профиль"]
+            ],
+            resize_keyboard=True,
+            one_time_keyboard=False,
+            is_persistent=True
+        )
+
+    if role == "admin":
+        rows = [
             ["🗺 Карта"],
+            ["📦 Грузы", "📋 Мои грузы"],
             ["🚚 Машина", "📨 Отклики"],
-            ["👤 Профиль"]
-        ],
+            ["👤 Профиль", "⚙️ Настройки"],
+            ["🛡 Админ"]
+        ]
+    elif role == "dispatcher":
+        rows = [
+            ["🗺 Карта"],
+            ["➕ Груз", "📋 Мои грузы"],
+            ["📨 Отклики", "👤 Профиль"]
+        ]
+    else:
+        rows = [
+            ["🗺 Карта"],
+            ["📦 Грузы", "🚚 Машина"],
+            ["📍 Рядом", "🟢 Выгодные"],
+            ["📨 Отклики", "👤 Профиль"]
+        ]
+
+    return ReplyKeyboardMarkup(
+        rows,
         resize_keyboard=True,
         one_time_keyboard=False,
         is_persistent=True
@@ -1438,7 +1467,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """, target_user_id)
 
             truck = await DB.fetchrow("""
-                SELECT id, current_city, body_type, capacity_tons, volume_m3, status, location_updated_at
+                SELECT id, current_city, body_type, capacity_tons, volume_m3, min_rate_per_km, status, location_updated_at
                 FROM trucks
                 WHERE driver_id=$1
                 ORDER BY id DESC
@@ -1478,9 +1507,31 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
+    me = await DB.fetchrow("""
+        SELECT role, verified, banned
+        FROM users
+        WHERE telegram_id=$1
+    """, update.effective_user.id)
+
+    role = me["role"] if me else "carrier"
+    verified = bool(me["verified"]) if me else False
+    banned = bool(me["banned"]) if me else False
+
+    if banned:
+        await update.message.reply_text("⛔ Ваш аккаунт заблокирован")
+        return
+
+    if not verified:
+        await update.message.reply_text(
+            "🚛 Добро пожаловать в Dalnoboy Bros!\n\n"
+            "Ваш аккаунт пока не одобрен. Подайте заявку, админ проверит доступ.",
+            reply_markup=main_reply_keyboard(role, verified)
+        )
+        return
+
     await update.message.reply_text(
         "🚛 Добро пожаловать в Dalnoboy Bros!",
-        reply_markup=main_reply_keyboard()
+        reply_markup=main_reply_keyboard(role, verified)
     )
     await menu(update, context)
 
@@ -3469,7 +3520,10 @@ async def replydeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if other_tg:
         await context.bot.send_message(
             chat_id=other_tg,
-            text=f"💬 Новое сообщение в сделке #{deal_id}\n\n{text}",
+            text=f"💬 Новое сообщение в сделке #{deal_id}\n"
+                 f"От user_id: {user_id}\n"
+                 f"Кому telegram_id: {other_tg}\n\n"
+                 f"{text}",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("💬 Ответить", callback_data=f"deal_chat_{deal_id}")],
                 [InlineKeyboardButton("📖 История чата", callback_data=f"deal_history_{deal_id}")]
@@ -4475,8 +4529,90 @@ async def deal_chat_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     context.user_data.pop("chat_deal_id", None)
-    await update.message.reply_text(f"✅ Сообщение отправлено в сделку #{deal_id}")
 
+    await update.message.reply_text("✅ Сообщение отправлено")
+    raise ApplicationHandlerStop
+
+
+
+
+
+
+
+async def myid(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(str(update.effective_user.id))
+
+
+
+
+async def whoami(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    tg_id = update.effective_user.id
+    user = await DB.fetchrow(
+        "SELECT id, telegram_id, full_name, role, plan_type FROM users WHERE telegram_id=$1",
+        tg_id
+    )
+
+    if not user:
+        await update.message.reply_text(f"Telegram ID: {tg_id}\nПользователь в БД не найден")
+        return
+
+    await update.message.reply_text(
+        f"Telegram ID: {tg_id}\n"
+        f"DB user_id: {user['id']}\n"
+        f"Имя: {user['full_name']}\n"
+        f"Роль: {user['role']}\n"
+        f"Тариф: {user['plan_type']}"
+    )
+
+
+
+
+async def dealdebug(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    deal_id = int(context.args[0]) if context.args else 13
+
+    rows = await DB.fetch("""
+        SELECT
+            d.id AS deal_id,
+            c.created_by AS owner_user_id,
+            COALESCE(r.driver_id, t.driver_id) AS driver_user_id,
+            owner.telegram_id AS owner_tg,
+            owner.full_name AS owner_name,
+            driver.telegram_id AS driver_tg,
+            driver.full_name AS driver_name
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        LEFT JOIN responses r ON r.id = d.response_id
+        LEFT JOIN users owner ON owner.id = c.created_by
+        LEFT JOIN users driver ON driver.id = COALESCE(r.driver_id, t.driver_id)
+        WHERE d.id=$1
+    """, deal_id)
+
+    if not rows:
+        await update.message.reply_text("Сделка не найдена")
+        return
+
+    r = rows[0]
+    await update.message.reply_text(
+        f"Сделка #{r['deal_id']}\n\n"
+        f"Владелец груза:\n"
+        f"user_id={r['owner_user_id']}\n"
+        f"tg={r['owner_tg']}\n"
+        f"name={r['owner_name']}\n\n"
+        f"Водитель:\n"
+        f"user_id={r['driver_user_id']}\n"
+        f"tg={r['driver_tg']}\n"
+        f"name={r['driver_name']}"
+    )
+
+
+async def pingtg(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await context.bot.send_message(
+        chat_id=1723796022,
+        text="✅ TEST DELIVERY"
+    )
+
+    await update.message.reply_text("sent")
 
 
 async def emit_deal_status(deal_id, status, status_text=None, cargo_id=None):
@@ -6562,28 +6698,69 @@ async def admin_setplan_button(update: Update, context: ContextTypes.DEFAULT_TYP
 
 
 async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [
-            InlineKeyboardButton("📦 Грузы", callback_data="menu_cargo"),
-            InlineKeyboardButton("➕ Создать груз", callback_data="menu_newcargo"),
-        ],
-        [
-            InlineKeyboardButton("🚚 Моя машина", callback_data="menu_truck"),
-            InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby"),
-        ],
-        [
-            InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals"),
-            InlineKeyboardButton("📨 Отклики", callback_data="menu_responses"),
-        ],
-        [
-            InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
-            InlineKeyboardButton("💳 Тарифы", callback_data="menu_plans"),
-        ],
-        [
-            InlineKeyboardButton("ℹ️ Помощь", callback_data="menu_help"),
-            InlineKeyboardButton("🛟 Поддержка", callback_data="menu_support"),
-        ],
-    ]
+    me = await DB.fetchrow("""
+        SELECT role, verified, banned
+        FROM users
+        WHERE telegram_id=$1
+    """, update.effective_user.id)
+
+    role = me["role"] if me else "carrier"
+    verified = bool(me["verified"]) if me else False
+    banned = bool(me["banned"]) if me else False
+
+    if banned:
+        await update.message.reply_text("⛔ Ваш аккаунт заблокирован")
+        return
+
+    if not verified:
+        keyboard = [
+            [InlineKeyboardButton("📝 Подать заявку", callback_data="access_request")],
+            [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile")],
+            [InlineKeyboardButton("🛟 Поддержка", callback_data="menu_support")]
+        ]
+        await update.message.reply_text(
+            "🔒 Доступ к карте и грузам только после одобрения админом.",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+        await update.message.reply_text(
+            "Нижнее меню включено 👇",
+            reply_markup=main_reply_keyboard(role, verified)
+        )
+        return
+
+    if role == "admin":
+        keyboard = [
+            [InlineKeyboardButton("📦 Грузы", callback_data="menu_cargo"),
+             InlineKeyboardButton("➕ Создать груз", callback_data="menu_newcargo")],
+            [InlineKeyboardButton("🚚 Машины", callback_data="menu_truck"),
+             InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby")],
+            [InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals"),
+             InlineKeyboardButton("📨 Отклики", callback_data="menu_responses")],
+            [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
+             InlineKeyboardButton("💳 Тарифы", callback_data="menu_plans")],
+            [InlineKeyboardButton("🛡 Админ", callback_data="admin_panel"),
+             InlineKeyboardButton("🛟 Поддержка", callback_data="menu_support")]
+        ]
+    elif role == "dispatcher":
+        keyboard = [
+            [InlineKeyboardButton("➕ Создать груз", callback_data="menu_newcargo"),
+             InlineKeyboardButton("📋 Мои грузы", callback_data="menu_mycargo")],
+            [InlineKeyboardButton("📨 Отклики", callback_data="menu_responses"),
+             InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals")],
+            [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
+             InlineKeyboardButton("🛟 Поддержка", callback_data="menu_support")]
+        ]
+    else:
+        keyboard = [
+            [InlineKeyboardButton("📦 Грузы", callback_data="menu_cargo"),
+             InlineKeyboardButton("🚚 Моя машина", callback_data="menu_truck")],
+            [InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby"),
+             InlineKeyboardButton("🟢 Выгодные", callback_data="menu_profit")],
+            [InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals"),
+             InlineKeyboardButton("📨 Отклики", callback_data="menu_responses")],
+            [InlineKeyboardButton("👤 Профиль", callback_data="menu_profile"),
+             InlineKeyboardButton("🛟 Поддержка", callback_data="menu_support")]
+        ]
 
     await update.message.reply_text(
         "🏠 Главное меню\n\nВыберите действие:",
@@ -6592,7 +6769,7 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(
         "Нижнее меню включено 👇",
-        reply_markup=main_reply_keyboard()
+        reply_markup=main_reply_keyboard(role, verified)
     )
 
 
@@ -7104,8 +7281,12 @@ def main():
     app.add_handler(CommandHandler("dealpdf", dealpdf))
     app.add_handler(CommandHandler("dealact", dealact))
     app.add_handler(CommandHandler("matching", matching))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, deal_chat_text), group=-99)
     app.add_handler(CommandHandler("profile", profile))
+    app.add_handler(CommandHandler("pingtg", pingtg))
+    app.add_handler(CommandHandler("dealdebug", dealdebug))
+    app.add_handler(CommandHandler("whoami", whoami))
+    app.add_handler(CommandHandler("myid", myid))
     app.add_handler(CommandHandler("plans", plans))
     app.add_handler(CommandHandler("truck", truck))
     app.add_handler(CommandHandler("location", location_cmd))

@@ -363,7 +363,7 @@ map.on('click', function(e) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        telegram_id: getTelegramUserId ? getTelegramUserId() : telegramUserId,
+        telegram_id: tgId,
         from_city: fromCity,
         to_city: toCity,
         description: description,
@@ -531,6 +531,12 @@ function drawSelectedRoute() {
 
 
 async function submitCreatedCargo() {
+  const tgId = getTelegramUserId ? getTelegramUserId() : telegramUserId;
+
+  if (!tgId) {
+    alert('Откройте карту через Telegram-бота, чтобы создать груз');
+    return;
+  }
 
   if (!pickupPoint || !dropoffPoint) {
     alert('Сначала найдите адрес загрузки и выгрузки');
@@ -783,6 +789,7 @@ function addCargoMarkerLive(c) {
     );
 
   marker.cargoId = c.id;
+  marker.cargoId = c.id;
   cargoMarkers.push(marker);
   cargoCluster.addLayer(marker);
   drawCargoRoute(c);
@@ -846,6 +853,7 @@ function loadCargo(query) {
           '<a class="btn" href="https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lon + '" target="_blank">🧭 Маршрут</a>'
         );
 
+      marker.cargoId = c.id;
       cargoMarkers.push(marker);
       cargoCluster.addLayer(marker);
       drawCargoRoute(c);
@@ -1064,7 +1072,7 @@ async function respondToCargo(cargoId) {
   const tgId = getTelegramUserId();
 
   if (!tgId) {
-    alert('Не удалось определить Telegram ID. Откройте карту через Telegram.');
+    alert('Откройте карту через Telegram-бота, чтобы откликнуться на груз.');
     return;
   }
 
@@ -1258,7 +1266,10 @@ function markDealStatus(cargoId, statusText) {
   cards.forEach(card => {
     if (!card.innerHTML.includes('Груз #' + cargoId)) return;
 
-    const badge = '<div style="margin-top:6px;font-weight:800;">📊 Рейс: ' + statusText + '</div>';
+    const badge =
+      '<div style="margin-top:6px;font-weight:800;">📊 Рейс: ' +
+      statusText +
+      '</div>';
 
     if (!card.innerHTML.includes('📊 Рейс:')) {
       card.innerHTML += badge;
@@ -1267,6 +1278,34 @@ function markDealStatus(cargoId, statusText) {
         /<div style="margin-top:6px;font-weight:800;">📊 Рейс: .*?<\/div>/,
         badge
       );
+    }
+  });
+
+  cargoMarkers.forEach(marker => {
+    if (String(marker.cargoId) !== String(cargoId)) return;
+
+    marker.setIcon(L.divIcon({
+      html:
+        '<div style="font-size:28px;filter:drop-shadow(0 0 6px #00aaff)">🔵📦</div>',
+      className: '',
+      iconSize: [40, 32],
+      iconAnchor: [20, 16]
+    }));
+
+    const popup = marker.getPopup();
+
+    if (popup) {
+      const oldHtml = popup.getContent();
+
+      if (!String(oldHtml).includes('📊 Рейс:')) {
+        marker.setPopupContent(
+          oldHtml + '<br>📊 Рейс: ' + statusText
+        );
+      } else {
+        marker.setPopupContent(
+          String(oldHtml).replace(/📊 Рейс: .*$/m, '📊 Рейс: ' + statusText)
+        );
+      }
     }
   });
 }
@@ -1841,3 +1880,58 @@ textarea,
   background: #fff !important;
 }
 </style>
+
+
+
+
+
+
+setTimeout(() => {
+  const tgId = getTelegramUserId ? getTelegramUserId() : telegramUserId;
+
+  // DEV ACCESS
+  const allowedBrowserIds = [8612087868];
+
+  const urlParams = new URLSearchParams(window.location.search);
+  const devId = Number(urlParams.get("dev"));
+
+  if (!tgId && !allowedBrowserIds.includes(devId)) {
+    document.body.innerHTML = `
+      <div style="
+        height:100vh;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        padding:24px;
+        text-align:center;
+        font-family:Arial;
+      ">
+        <div>
+          <h2>🚛 Dalnoboy Bros</h2>
+          <p>Карта доступна только через Telegram-бота.</p>
+
+          <a href="https://t.me/dalnoboybros_bot" style="
+            display:inline-block;
+            margin-top:16px;
+            padding:14px 20px;
+            background:#1976d2;
+            color:white;
+            text-decoration:none;
+            border-radius:12px;
+            font-weight:700;
+          ">
+            Открыть Telegram-бота
+          </a>
+        </div>
+      </div>
+    `;
+    throw new Error("No Telegram user");
+  }
+
+  if (!tgId && allowedBrowserIds.includes(devId)) {
+    telegramUserId = devId;
+    console.log("DEV ACCESS ENABLED", devId);
+  }
+
+}, 1500);
+
