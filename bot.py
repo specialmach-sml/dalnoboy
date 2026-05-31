@@ -30,7 +30,7 @@ def distance_km(lat1, lon1, lat2, lon2):
         return None
 
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -236,6 +236,14 @@ async def ensure_user(tg_user):
 
 
 
+
+
+
+
+async def private_only(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat = update.effective_chat
+    if chat and chat.type != "private":
+        raise ApplicationHandlerStop
 
 
 async def ban_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1497,6 +1505,7 @@ async def profile_phone_message(update: Update, context: ContextTypes.DEFAULT_TY
     await profile(update, context)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    logging.info(f"start called args={context.args}, user={update.effective_user.id if update.effective_user else None}")
     await ensure_user(update.effective_user)
 
     if context.args and context.args[0].startswith("cargo_"):
@@ -1537,6 +1546,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{cargo_id}")],
+                    [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{cargo_id}")],
+                    [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{cargo_id}")],
                     [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=143"))]
                 ])
             )
@@ -1724,6 +1735,8 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
+                [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{r['id']}")],
+                [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{r['id']}")],
                 [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")]
             ])
 
@@ -2965,20 +2978,120 @@ async def topcarriers(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if user_id != 1:
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
     users_count = await DB.fetchval("SELECT COUNT(*) FROM users")
+    verified_count = await DB.fetchval("SELECT COUNT(*) FROM users WHERE verified=true")
+    banned_count = await DB.fetchval("SELECT COUNT(*) FROM users WHERE banned=true")
+
+    carriers = await DB.fetchval("SELECT COUNT(DISTINCT user_id) FROM user_roles WHERE role='carrier' AND active=true")
+    shippers = await DB.fetchval("SELECT COUNT(DISTINCT user_id) FROM user_roles WHERE role='shipper' AND active=true")
+    dispatchers = await DB.fetchval("SELECT COUNT(DISTINCT user_id) FROM user_roles WHERE role='dispatcher' AND active=true")
+
+    trucks_total = await DB.fetchval("SELECT COUNT(*) FROM trucks")
+    trucks_active = await DB.fetchval("SELECT COUNT(*) FROM trucks WHERE status='active'")
+    trucks_geo = await DB.fetchval("SELECT COUNT(*) FROM trucks WHERE latitude IS NOT NULL AND longitude IS NOT NULL")
+
+    cargo_total = await DB.fetchval("SELECT COUNT(*) FROM cargo")
     cargo_open = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE status='open'")
     cargo_done = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE status='done'")
+    cargo_today = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE created_at::date = CURRENT_DATE")
+
+    responses_total = await DB.fetchval("SELECT COUNT(*) FROM responses")
+    responses_today = await DB.fetchval("SELECT COUNT(*) FROM responses WHERE created_at::date = CURRENT_DATE")
+
+    deals_total = await DB.fetchval("SELECT COUNT(*) FROM deals")
+    deals_active = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE status IN ('pending','active','in_progress')")
     deals_done = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE status='done'")
-    trucks_active = await DB.fetchval("SELECT COUNT(*) FROM trucks WHERE status='active'")
+    deals_today = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE created_at::date = CURRENT_DATE")
+
     reviews_count = await DB.fetchval("SELECT COUNT(*) FROM reviews WHERE deleted_at IS NULL")
 
+    cargo_turnover_total = await DB.fetchval("""
+        SELECT COALESCE(SUM(price_amount), 0)
+        FROM cargo
+        WHERE price_currency='RUB' OR price_currency IS NULL
+    """)
+
+    cargo_turnover_open = await DB.fetchval("""
+        SELECT COALESCE(SUM(price_amount), 0)
+        FROM cargo
+        WHERE status='open'
+          AND (price_currency='RUB' OR price_currency IS NULL)
+    """)
+
+    cargo_turnover_7d = await DB.fetchval("""
+        SELECT COALESCE(SUM(price_amount), 0)
+        FROM cargo
+        WHERE created_at > now() - interval '7 days'
+          AND (price_currency='RUB' OR price_currency IS NULL)
+    """)
+
+    avg_rate = await DB.fetchval("""
+        SELECT ROUND(AVG(rate_per_km)::numeric, 2)
+        FROM cargo
+        WHERE rate_per_km IS NOT NULL
+    """)
+
+    access_pending = await DB.fetchval("SELECT COUNT(*) FROM access_requests WHERE status='pending'")
+    dispatcher_clients = await DB.fetchval("SELECT COUNT(*) FROM dispatcher_clients WHERE status='active'")
+
+    new_users_today = await DB.fetchval("SELECT COUNT(*) FROM users WHERE created_at::date = CURRENT_DATE")
+    new_users_7d = await DB.fetchval("SELECT COUNT(*) FROM users WHERE created_at > now() - interval '7 days'")
+    cargo_7d = await DB.fetchval("SELECT COUNT(*) FROM cargo WHERE created_at > now() - interval '7 days'")
+    responses_7d = await DB.fetchval("SELECT COUNT(*) FROM responses WHERE created_at > now() - interval '7 days'")
+
     await update.message.reply_text(
-        f"📊 Статистика Dalnoboy\n\n"
-        f"👥 Пользователей: {users_count}\n"
-        f"🚚 Активных машин: {trucks_active}\n"
-        f"📦 Открытых грузов: {cargo_open}\n"
-        f"✅ Завершённых грузов: {cargo_done}\n"
-        f"🤝 Завершённых сделок: {deals_done}\n"
+        f"📊 Dalnoboy Bros — статистика\n\n"
+        f"👥 Пользователи\n"
+        f"Всего: {users_count}\n"
+        f"✅ Проверенных: {verified_count}\n"
+        f"⛔ Забаненных: {banned_count}\n"
+        f"🆕 Сегодня: {new_users_today}\n"
+        f"📅 За 7 дней: {new_users_7d}\n\n"
+
+        f"🎭 Роли\n"
+        f"🚛 Перевозчики: {carriers}\n"
+        f"📦 Грузоотправители: {shippers}\n"
+        f"👨‍💼 Диспетчеры: {dispatchers}\n"
+        f"📝 Заявок на доступ: {access_pending}\n\n"
+
+        f"🚚 Машины\n"
+        f"Всего: {trucks_total}\n"
+        f"🟢 Активных: {trucks_active}\n"
+        f"📍 С геолокацией: {trucks_geo}\n\n"
+
+        f"📦 Грузы\n"
+        f"Всего: {cargo_total}\n"
+        f"🟢 Открытых: {cargo_open}\n"
+        f"✅ Завершённых: {cargo_done}\n"
+        f"🆕 Сегодня: {cargo_today}\n"
+        f"📅 За 7 дней: {cargo_7d}\n\n"
+
+        f"💰 Деньги по грузам\n"
+        f"Оборот всего: {format_price(cargo_turnover_total)} ₽\n"
+        f"Открытые грузы: {format_price(cargo_turnover_open)} ₽\n"
+        f"За 7 дней: {format_price(cargo_turnover_7d)} ₽\n"
+        f"Средняя ставка: {avg_rate or '-'} ₽/км\n\n"
+
+        f"📨 Отклики\n"
+        f"Всего: {responses_total}\n"
+        f"🆕 Сегодня: {responses_today}\n"
+        f"📅 За 7 дней: {responses_7d}\n\n"
+
+        f"🤝 Сделки\n"
+        f"Всего: {deals_total}\n"
+        f"🚚 Активных: {deals_active}\n"
+        f"✅ Завершённых: {deals_done}\n"
+        f"🆕 Сегодня: {deals_today}\n\n"
+
+        f"👨‍💼 CRM диспетчера\n"
+        f"Активных клиентов: {dispatcher_clients}\n\n"
+
         f"⭐ Отзывов: {reviews_count}"
     )
 
@@ -3074,6 +3187,8 @@ async def findprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
     for r in rows:
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
+                [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{r['id']}")],
+                [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{r['id']}")],
             [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")]
         ])
 
@@ -3459,10 +3574,64 @@ async def find_cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
+                [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{r['id']}")],
+                [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{r['id']}")],
             [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")]
         ])
 
         await update.message.reply_text(text, reply_markup=kb)
+
+
+
+
+
+async def cargo_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    cargo_id = int(q.data.split("_")[-1])
+    link = f"https://t.me/dalnoboybros_bot?start=cargo_{cargo_id}"
+
+    await q.message.reply_text(
+        f"🔗 Ссылка на груз #{cargo_id}:\n\n{link}"
+    )
+
+
+async def cargo_share(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    cargo_id = int(q.data.split("_")[-1])
+
+    c = await DB.fetchrow("""
+        SELECT id, from_city, to_city, description, price_amount, price_currency, distance_km, rate_per_km
+        FROM cargo
+        WHERE id=$1
+    """, cargo_id)
+
+    if not c:
+        await q.message.reply_text("❌ Груз не найден")
+        return
+
+    currency = "₽" if (c["price_currency"] or "RUB") == "RUB" else (c["price_currency"] or "RUB")
+
+    text = (
+        f"🚛 DALNOBOY BROS\n\n"
+        f"📦 Груз #{c['id']}\n\n"
+        f"📍 {c['from_city']} → {c['to_city']}\n\n"
+        f"💰 {format_price(c['price_amount'])} {currency}\n"
+        f"📏 {c['distance_km'] or '-'} км\n"
+        f"💵 {round(float(c['rate_per_km']), 2) if c['rate_per_km'] else '-'} ₽/км\n\n"
+        f"📦 Груз:\n"
+        f"{c['description'] or '-'}\n\n"
+        f"👇 Открыть груз и откликнуться:\n"
+        f"https://t.me/dalnoboybros_bot?start=cargo_{c['id']}"
+    )
+
+    await q.message.reply_text(
+        "📤 Текст для пересылки:\n\n" + text
+    )
+
 
 async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -5680,6 +5849,8 @@ async def newcargo_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{row['id']}")],
+                    [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{row['id']}")],
+                    [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{row['id']}")],
                     [InlineKeyboardButton("📦 Смотреть грузы", callback_data="menu_cargo")],
                     [InlineKeyboardButton("📋 Мои подписки", callback_data="menu_mysubs")]
                 ])
@@ -5738,6 +5909,8 @@ async def newcargo_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ),
                 reply_markup=InlineKeyboardMarkup([
                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{row['id']}")],
+                    [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{row['id']}")],
+                    [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{row['id']}")],
                     [InlineKeyboardButton("📦 Смотреть грузы", callback_data="menu_cargo")]
                 ])
             )
@@ -5862,6 +6035,43 @@ async def settings_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def truck_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    truck = await DB.fetchrow("""
+        SELECT
+            search_radius_km,
+            min_rate_per_km,
+            notifications_enabled,
+            notify_profitable_only,
+            location_updated_at
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    if truck:
+        notify_status = "включены" if truck["notifications_enabled"] else "выключены"
+        notify_mode = "только выгодные" if truck["notify_profitable_only"] else "все рядом"
+        radius = truck["search_radius_km"] or 50
+        rate = truck["min_rate_per_km"] or "-"
+        geo = truck["location_updated_at"] or "не обновлялась"
+    else:
+        notify_status = "не настроены"
+        notify_mode = "-"
+        radius = "-"
+        rate = "-"
+        geo = "машина не добавлена"
+
+    text = (
+        "⚙️ Настройки машины\n\n"
+        f"🔔 Уведомления: {notify_status}\n"
+        f"🟢 Режим: {notify_mode}\n"
+        f"🛣 Радиус поиска: {radius} км\n"
+        f"💰 Мин. ставка: {rate} ₽/км\n"
+        f"📍 GEO: {geo}"
+    )
+
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("💰 Ставка ₽/км", callback_data="settings_rate")],
         [InlineKeyboardButton("📍 Обновить гео", callback_data="settings_geo")],
@@ -5872,10 +6082,7 @@ async def truck_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🟢 Уведомлять только выгодные ON/OFF", callback_data="settings_profitable_notify_toggle")]
     ])
 
-    await update.message.reply_text(
-        "⚙️ Настройки машины",
-        reply_markup=kb
-    )
+    await update.message.reply_text(text, reply_markup=kb)
 
 
 async def setrate(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6036,7 +6243,9 @@ async def push_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📍 {r['distance_km']} км до загрузки\n"
             f"💵 {round(float(r['rate_per_km']), 2) if r['rate_per_km'] else 'ставка не указана'} ₽/км",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
+                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
+                [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{r['id']}")],
+                [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{r['id']}")]
             ])
         )
 
@@ -6098,7 +6307,9 @@ async def nearby_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📍 {r['distance_km']} км до загрузки\n"
             f"💵 {round(float(r['rate_per_km']), 2) if r['rate_per_km'] else 'ставка не указана'} ₽/км",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
+                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
+                [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{r['id']}")],
+                [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{r['id']}")]
             ])
         )
 
@@ -6240,7 +6451,9 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📍 {dist} км до загрузки\n"
             f"{econ}",
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
+                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
+                [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{r['id']}")],
+                [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{r['id']}")]
             ])
         )
 
@@ -6579,6 +6792,7 @@ async def auto_profit_loop(app: Application):
                 WHERE
                     u.telegram_id IS NOT NULL
                     AND t.status='active'
+                    AND COALESCE(t.notifications_enabled, true)=true
                     AND t.latitude IS NOT NULL
                     AND t.longitude IS NOT NULL
                     AND t.location_updated_at > now() - interval '24 hours'
@@ -6614,18 +6828,23 @@ async def auto_profit_loop(app: Application):
                                 continue
 
                             text = (
-                                f"🟢 Новый выгодный груз рядом\n\n"
-                                f"🚩 {r['from_city']} → {r['to_city']}\n"
+                                f"🔔 Новый выгодный груз\n\n"
+                                f"📦 Груз #{r['id']}\n"
+                                f"📍 {r['from_city']} → {r['to_city']}\n\n"
                                 f"💰 {format_price(r['price_amount'])} ₽\n"
-                                f"📍 {r['distance_km']} км до загрузки\n"
-                                f"💵 {round(float(r['rate_per_km']), 2) if r.get('rate_per_km') else 'ставка не указана'} ₽/км"
+                                f"📏 {r.get('distance_km') or '-'} км до загрузки\n"
+                                f"💵 {round(float(r['rate_per_km']), 2) if r.get('rate_per_km') else 'ставка не указана'} ₽/км\n\n"
+                                f"👇 Открыть груз:\n"
+                                f"https://t.me/dalnoboybros_bot?start=cargo_{r['id']}"
                             )
 
                             await app.bot.send_message(
                                 chat_id=user["telegram_id"],
                                 text=text,
                                 reply_markup=InlineKeyboardMarkup([
-                                    [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")]
+                                    [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
+                [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{r['id']}")],
+                [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{r['id']}")]
                                 ])
                             )
 
@@ -7973,6 +8192,7 @@ def main():
     app.add_handler(truck_handler)
     app.add_handler(MessageHandler(filters.LOCATION, location_handler))
 
+    app.add_handler(MessageHandler(filters.ALL, private_only), group=-3)
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
@@ -7983,6 +8203,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, dispatcher_commission_text), group=-100)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CallbackQueryHandler(settings_buttons, pattern="^settings_"), group=-10)
     app.add_handler(CommandHandler("cargo", cargo))
     app.add_handler(CommandHandler("find", find_cargo))
     app.add_handler(CommandHandler("routes", routes))
@@ -8056,7 +8277,6 @@ def main():
     app.add_handler(CommandHandler("pushmatches", pushmatches))
     app.add_handler(CommandHandler("automatches", automatches))
     app.add_handler(CommandHandler("setrate", setrate))
-    app.add_handler(CallbackQueryHandler(settings_buttons, pattern="^settings_"))
     app.add_handler(CommandHandler("subscribe", subscribe))
     app.add_handler(CommandHandler("sub", subscribe))
     app.add_handler(CommandHandler("mysubs", mysubs))
@@ -8070,6 +8290,8 @@ def main():
     app.add_handler(CallbackQueryHandler(report_close, pattern="^report_close_"))
     app.add_handler(CallbackQueryHandler(cargo_report, pattern="^report_"))
     app.add_handler(CallbackQueryHandler(cargo_restore, pattern="^cargo_restore_"))
+    app.add_handler(CallbackQueryHandler(cargo_link, pattern="^cargo_link_"))
+    app.add_handler(CallbackQueryHandler(cargo_share, pattern="^cargo_share_"))
     app.add_handler(CallbackQueryHandler(respond, pattern="^cargo_"))
     app.add_handler(CallbackQueryHandler(response_action, pattern="^(accept|reject)_"))
     app.add_handler(CallbackQueryHandler(deal_closedispute_button, pattern="^deal_closedispute_"))
