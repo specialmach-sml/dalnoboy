@@ -2086,17 +2086,35 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     deals_count = await DB.fetchval("SELECT COUNT(*) FROM deals")
     active_deals = await DB.fetchval("SELECT COUNT(*) FROM deals WHERE status IN ('active','in_progress')")
     trucks_count = await DB.fetchval("SELECT COUNT(*) FROM trucks")
+    pending_access = await DB.fetchval("SELECT COUNT(*) FROM access_requests WHERE status='pending'")
 
-    await update.message.reply_text(
-        f"🛠 Админ-панель\n\n"
-        f"👤 Ваш ID: {user_id}\n"
+    text = (
+        f"🛡 Админ-панель Dalnoboy Bros\n\n"
+        f"👤 Ваш ID: {user_id}\n\n"
         f"👥 Пользователей: {users_count}\n"
         f"📦 Грузов всего: {cargo_count}\n"
         f"🟢 Открытых грузов: {open_cargo}\n"
         f"🤝 Сделок всего: {deals_count}\n"
         f"🚚 Активных сделок: {active_deals}\n"
-        f"🚛 Машин: {trucks_count}"
+        f"🚛 Машин: {trucks_count}\n"
+        f"📝 Заявок на роли: {pending_access}\n\n"
+        f"Выберите раздел:"
     )
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("📊 Статистика", callback_data="admin_panel_stats"),
+         InlineKeyboardButton("📄 Отчёт", callback_data="admin_panel_report")],
+        [InlineKeyboardButton("📅 Сегодня", callback_data="admin_panel_today"),
+         InlineKeyboardButton("👥 Пользователи", callback_data="admin_panel_users")],
+        [InlineKeyboardButton("📦 Грузы", callback_data="admin_panel_cargo"),
+         InlineKeyboardButton("🤝 Сделки", callback_data="admin_panel_deals")],
+        [InlineKeyboardButton("⚠️ Споры", callback_data="admin_panel_disputes"),
+         InlineKeyboardButton("💳 Подписки", callback_data="admin_panel_subs")],
+        [InlineKeyboardButton("🚩 Жалобы", callback_data="admin_panel_reports"),
+         InlineKeyboardButton("🔔 Маршруты", callback_data="admin_panel_routes")]
+    ])
+
+    await update.message.reply_text(text, reply_markup=kb)
 
 
 
@@ -6773,6 +6791,8 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await plans(update, context)
     if text == "🏠 Меню":
         return await menu(update, context)
+    if text == "🛡 Админ":
+        return await admin(update, context)
     if text == "🆘 Помощь":
         return await help_cmd(update, context)
 
@@ -7315,6 +7335,37 @@ async def dispatcher_client_card_button(update: Update, context: ContextTypes.DE
         await q.message.reply_text("❌ Клиент не найден")
         return
 
+    client_id = r["client_user_id"]
+
+    trucks_count = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM trucks
+        WHERE driver_id=$1
+    """, client_id)
+
+    cargo_count = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM cargo
+        WHERE created_by=$1
+    """, client_id)
+
+    stats = await DB.fetchrow("""
+        SELECT
+            COUNT(*) AS deals_total,
+            COUNT(*) FILTER (WHERE d.status IN ('pending','active','in_progress')) AS deals_active,
+            COUNT(*) FILTER (WHERE d.status IN ('done','completed')) AS deals_done,
+            COALESCE(SUM(CASE WHEN d.status IN ('done','completed') THEN c.price_amount ELSE 0 END), 0) AS turnover_done
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        LEFT JOIN responses resp ON resp.id = d.response_id
+        WHERE c.created_by=$1 OR t.driver_id=$1 OR resp.driver_id=$1
+    """, client_id)
+
+    commission = float(r["commission_percent"] or 0)
+    turnover_done = float(stats["turnover_done"] or 0)
+    potential_commission = turnover_done * commission / 100
+
     kind = "🚚 Перевозчик" if r["client_type"] == "carrier" else "📦 Грузоотправитель"
     username = f"@{r['telegram_username']}" if r["telegram_username"] else "-"
 
@@ -7324,8 +7375,17 @@ async def dispatcher_client_card_button(update: Update, context: ContextTypes.DE
         f"Имя: {r['full_name'] or '-'}\n"
         f"Telegram ID: {r['telegram_id']}\n"
         f"Username: {username}\n"
-        f"Комиссия: {r['commission_percent'] or 0}%\n"
-        f"Статус: {r['status']}"
+        f"Статус: {r['status']}\n\n"
+
+        f"📊 CRM-сводка\n"
+        f"🚚 Машин: {trucks_count}\n"
+        f"📦 Грузов: {cargo_count}\n"
+        f"🤝 Сделок всего: {stats['deals_total'] or 0}\n"
+        f"🚚 Активных сделок: {stats['deals_active'] or 0}\n"
+        f"✅ Завершено: {stats['deals_done'] or 0}\n"
+        f"💰 Оборот завершённых: {format_price(turnover_done)} ₽\n"
+        f"💼 Комиссия: {commission}%\n"
+        f"💵 Потенц. доход: {format_price(potential_commission)} ₽"
     )
 
     keyboard = [
@@ -8198,7 +8258,7 @@ def main():
 
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, deal_document_message), group=-1)
     app.add_handler(MessageHandler(filters.PHOTO, truck_photo_message))
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню|📝 Подать заявку|🤝 Сделки|➕ Запросить роль)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню|📝 Подать заявку|🤝 Сделки|➕ Запросить роль|🛡 Админ)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, truck_edit_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, dispatcher_commission_text), group=-100)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
