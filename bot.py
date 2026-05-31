@@ -3143,6 +3143,58 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+
+
+async def topcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if user_id != 1:
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
+    rows = await DB.fetch("""
+        SELECT
+            c.id,
+            c.from_city,
+            c.to_city,
+            c.price_amount,
+            c.price_currency,
+            c.status,
+            COUNT(DISTINCT cv.user_id) AS views_count,
+            COUNT(DISTINCT r.id) AS responses_count,
+            COUNT(DISTINCT d.id) AS deals_count
+        FROM cargo c
+        LEFT JOIN cargo_views cv ON cv.cargo_id = c.id
+        LEFT JOIN responses r ON r.cargo_id = c.id
+        LEFT JOIN deals d ON d.cargo_id = c.id
+        GROUP BY c.id
+        ORDER BY views_count DESC, responses_count DESC, c.id DESC
+        LIMIT 10
+    """)
+
+    if not rows:
+        await update.message.reply_text("🔥 Популярных грузов пока нет")
+        return
+
+    text = "🔥 ТОП грузов по просмотрам\n\n"
+
+    medals = ["🥇", "🥈", "🥉"]
+
+    for i, r in enumerate(rows, start=1):
+        medal = medals[i-1] if i <= 3 else f"{i}."
+        text += (
+            f"{medal} Груз #{r['id']} — {human_status(r['status'])}\n"
+            f"📍 {r['from_city']} → {r['to_city']}\n"
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or 'RUB'}\n"
+            f"👁 Просмотров: {r['views_count']}\n"
+            f"📨 Откликов: {r['responses_count']}\n"
+            f"🤝 Сделок: {r['deals_count']}\n"
+            f"🔗 https://t.me/dalnoboybros_bot?start=cargo_{r['id']}\n\n"
+        )
+
+    await update.message.reply_text(text)
+
+
 async def deletedcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -8304,6 +8356,7 @@ def main():
     app.add_handler(CommandHandler("deletedcargo", deletedcargo))
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("topcarriers", topcarriers))
+    app.add_handler(CommandHandler("topcargo", topcargo))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("rules", rules))
     app.add_handler(CommandHandler("support", support))
