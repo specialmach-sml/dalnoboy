@@ -3246,6 +3246,72 @@ async def toproutes(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
+
+
+async def topdispatchers(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if user_id != 1:
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
+    rows = await DB.fetch("""
+        SELECT
+            dc.dispatcher_user_id,
+            u.full_name,
+            u.telegram_id,
+            COUNT(DISTINCT dc.client_user_id) AS clients_count,
+            COUNT(DISTINCT d.id) AS deals_count,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.status IN ('pending','active','in_progress')) AS active_deals,
+            COUNT(DISTINCT d.id) FILTER (WHERE d.status IN ('done','completed')) AS done_deals,
+            COALESCE(SUM(
+                CASE
+                    WHEN d.status IN ('done','completed')
+                    THEN c.price_amount * COALESCE(dc.commission_percent, 0) / 100
+                    ELSE 0
+                END
+            ), 0) AS commission_income,
+            COALESCE(SUM(
+                CASE
+                    WHEN d.status IN ('done','completed')
+                    THEN c.price_amount
+                    ELSE 0
+                END
+            ), 0) AS turnover_done
+        FROM dispatcher_clients dc
+        JOIN users u ON u.id = dc.dispatcher_user_id
+        LEFT JOIN cargo c ON c.created_by = dc.client_user_id
+        LEFT JOIN trucks t ON t.driver_id = dc.client_user_id
+        LEFT JOIN deals d ON d.cargo_id = c.id OR d.truck_id = t.id
+        WHERE dc.status='active'
+        GROUP BY dc.dispatcher_user_id, u.full_name, u.telegram_id
+        ORDER BY clients_count DESC, deals_count DESC, turnover_done DESC
+        LIMIT 10
+    """)
+
+    if not rows:
+        await update.message.reply_text("👨‍💼 Диспетчеров с клиентами пока нет")
+        return
+
+    medals = ["🥇", "🥈", "🥉"]
+    text = "👨‍💼 ТОП диспетчеров\n\n"
+
+    for i, r in enumerate(rows, start=1):
+        medal = medals[i-1] if i <= 3 else f"{i}."
+        text += (
+            f"{medal} {r['full_name'] or 'Без имени'}\n"
+            f"TG ID: {r['telegram_id']}\n"
+            f"👥 Клиентов: {r['clients_count']}\n"
+            f"🤝 Сделок всего: {r['deals_count']}\n"
+            f"🚚 Активных: {r['active_deals']}\n"
+            f"✅ Завершено: {r['done_deals']}\n"
+            f"💰 Оборот завершённых: {format_price(r['turnover_done'])} ₽\n"
+            f"💼 Потенц. комиссия: {format_price(r['commission_income'])} ₽\n\n"
+        )
+
+    await update.message.reply_text(text)
+
+
 async def deletedcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -8409,6 +8475,7 @@ def main():
     app.add_handler(CommandHandler("topcarriers", topcarriers))
     app.add_handler(CommandHandler("topcargo", topcargo))
     app.add_handler(CommandHandler("toproutes", toproutes))
+    app.add_handler(CommandHandler("topdispatchers", topdispatchers))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("rules", rules))
     app.add_handler(CommandHandler("support", support))
