@@ -3195,6 +3195,57 @@ async def topcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text)
 
 
+
+
+async def toproutes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if user_id != 1:
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
+    rows = await DB.fetch("""
+        SELECT
+            c.from_city,
+            c.to_city,
+            COUNT(DISTINCT c.id) AS cargo_count,
+            COUNT(DISTINCT cv.user_id) AS views_count,
+            COUNT(DISTINCT r.id) AS responses_count,
+            COUNT(DISTINCT d.id) AS deals_count,
+            COALESCE(SUM(c.price_amount), 0) AS turnover
+        FROM cargo c
+        LEFT JOIN cargo_views cv ON cv.cargo_id = c.id
+        LEFT JOIN responses r ON r.cargo_id = c.id
+        LEFT JOIN deals d ON d.cargo_id = c.id
+        WHERE c.from_city IS NOT NULL
+          AND c.to_city IS NOT NULL
+        GROUP BY c.from_city, c.to_city
+        ORDER BY views_count DESC, cargo_count DESC, responses_count DESC
+        LIMIT 10
+    """)
+
+    if not rows:
+        await update.message.reply_text("🔥 Популярных направлений пока нет")
+        return
+
+    medals = ["🥇", "🥈", "🥉"]
+    text = "🔥 Популярные направления\n\n"
+
+    for i, r in enumerate(rows, start=1):
+        medal = medals[i-1] if i <= 3 else f"{i}."
+
+        text += (
+            f"{medal} {r['from_city']} → {r['to_city']}\n"
+            f"📦 Грузов: {r['cargo_count']}\n"
+            f"👁 Просмотров: {r['views_count']}\n"
+            f"📨 Откликов: {r['responses_count']}\n"
+            f"🤝 Сделок: {r['deals_count']}\n"
+            f"💰 Оборот: {format_price(r['turnover'])} ₽\n\n"
+        )
+
+    await update.message.reply_text(text)
+
+
 async def deletedcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -8357,6 +8408,7 @@ def main():
     app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("topcarriers", topcarriers))
     app.add_handler(CommandHandler("topcargo", topcargo))
+    app.add_handler(CommandHandler("toproutes", toproutes))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("rules", rules))
     app.add_handler(CommandHandler("support", support))
