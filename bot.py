@@ -1506,7 +1506,7 @@ async def profile_phone_message(update: Update, context: ContextTypes.DEFAULT_TY
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"start called args={context.args}, user={update.effective_user.id if update.effective_user else None}")
-    await ensure_user(update.effective_user)
+    user_id = await ensure_user(update.effective_user)
 
     if context.args and context.args[0].startswith("cargo_"):
         try:
@@ -1534,6 +1534,32 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Груз не найден")
                 return
 
+            if user_id:
+                await DB.execute("""
+                    INSERT INTO cargo_views (cargo_id, user_id)
+                    VALUES ($1, $2)
+                    ON CONFLICT (cargo_id, user_id)
+                    DO UPDATE SET viewed_at=now()
+                """, cargo_id, user_id)
+
+            views_count = await DB.fetchval("""
+                SELECT COUNT(*)
+                FROM cargo_views
+                WHERE cargo_id=$1
+            """, cargo_id)
+
+            responses_count = await DB.fetchval("""
+                SELECT COUNT(*)
+                FROM responses
+                WHERE cargo_id=$1
+            """, cargo_id)
+
+            deals_count = await DB.fetchval("""
+                SELECT COUNT(*)
+                FROM deals
+                WHERE cargo_id=$1
+            """, cargo_id)
+
             await update.message.reply_text(
                 (
                     f"📦 Груз #{cargo['id']}\n"
@@ -1542,6 +1568,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     f"📏 {cargo['distance_km'] or '-'} км\n"
                     f"💵 {round(float(cargo['rate_per_km']), 2) if cargo['rate_per_km'] else 'нет'} ₽/км\n"
                     f"📊 {human_status(cargo['status'])}\n"
+                    f"👁 Просмотров: {views_count}\n"
+                    f"📨 Откликов: {responses_count}\n"
+                    f"🤝 Сделок: {deals_count}\n"
                     f"📝 {cargo['description'] or '-'}"
                 ),
                 reply_markup=InlineKeyboardMarkup([
