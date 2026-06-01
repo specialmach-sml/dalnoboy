@@ -99,6 +99,12 @@ async def get_user_roles(tg_id):
     if user["verified"] and user["role"] not in roles:
         roles.append(user["role"])
 
+    # Админ видит все рабочие разделы
+    if "admin" in roles:
+        for r in ["carrier", "shipper", "dispatcher"]:
+            if r not in roles:
+                roles.append(r)
+
     return {
         "user_id": user["id"],
         "roles": roles,
@@ -1670,7 +1676,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🚛 Добро пожаловать в Dalnoboy Bros!",
         reply_markup=main_reply_keyboard(role, verified, roles)
     )
-    await menu(update, context)
 
 async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = await DB.fetch("""
@@ -1710,21 +1715,21 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
     my_truck = await DB.fetchrow("""
-        SELECT latitude, longitude, min_rate_per_km, search_radius_km
+        SELECT latitude, longitude
         FROM trucks
         WHERE driver_id=$1
         ORDER BY id DESC
         LIMIT 1
     """, user_id)
 
-    rows_with_distance = []
+    items = []
     for r in rows:
         dist = None
         if my_truck and my_truck["latitude"] and my_truck["longitude"] and r["load_latitude"] and r["load_longitude"]:
             dist = distance_km(my_truck["latitude"], my_truck["longitude"], r["load_latitude"], r["load_longitude"])
-        rows_with_distance.append((dist, r))
+        items.append((dist, r))
 
-    rows_with_distance.sort(
+    items.sort(
         key=lambda x: (
             0 if x[1]["boost_until"] and x[1]["boost_until"] > datetime.now() else 1,
             0 if x[1]["vip_until"] and x[1]["vip_until"] > datetime.now() else 1,
@@ -1733,76 +1738,33 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     )
 
-    for dist, r in rows_with_distance:
-        plan_type = r["plan_type"] if "plan_type" in r and r["plan_type"] else "free"
+    text = "📦 Последние грузы\n\n"
 
-        if plan_type == "company":
-            badge = "⭐ COMPANY"
-        elif plan_type == "pro":
-            badge = "🔥 PRO"
-        elif plan_type == "dispatcher":
-            badge = "📡 DISPATCHER"
-        else:
-            badge = "FREE"
-
-        distance_line = f"\n📍 До загрузки: {dist} км" if dist is not None else ""
-
-        cargo_badges = ""
+    for dist, r in items:
+        flags = ""
         if r["boost_until"] and r["boost_until"] > datetime.now():
-            cargo_badges += "🚀 Поднят в ТОП\n"
+            flags += "🚀"
         if r["vip_until"] and r["vip_until"] > datetime.now():
-            cargo_badges += "⭐ VIP груз\n"
+            flags += "⭐"
 
-        text = (
-            f"{cargo_badges}"
-            f"📦 Груз #{r['id']}\n"
-            f"🏷 Тариф: {badge}\n"
+        distance_text = f"\n📍 До загрузки: {dist} км" if dist is not None else ""
+        desc = r["description"] or "Без описания"
+
+        if len(desc) > 60:
+            desc = desc[:60] + "..."
+
+        text += (
+            f"{flags}📦 Груз #{r['id']}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
-            f"📝 {r['description'] or 'Без описания'}\n"
-            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
-            f"📊 Статус: {human_status(r['status'])}"
-            f"{distance_line}"
+            f"📝 {desc}\n"
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or 'RUB'}"
+            f"{distance_text}\n"
+            f"👉 /cargo{r['id']}\n\n"
         )
 
-        existing_response = await DB.fetchrow("""
-            SELECT id, status
-            FROM responses
-            WHERE cargo_id=$1
-              AND driver_id=$2
-            ORDER BY id DESC
-            LIMIT 1
-        """, r["id"], user_id)
+    text += "Чтобы откликнуться, нажмите команду нужного груза."
 
-        if existing_response:
-            response_status = existing_response["status"] or "sent"
-
-            if response_status == "accepted":
-                response_text = "🤝 Вас выбрали"
-
-            elif response_status == "rejected":
-                response_text = "❌ Отклонён"
-
-            else:
-                response_text = "✅ Вы откликнулись"
-
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📨 Мой отклик / статус", callback_data="menu_myresponses")],
-                [InlineKeyboardButton(response_text, callback_data="menu_myresponses")],
-                [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")]
-            ])
-        else:
-            kb = InlineKeyboardMarkup([
-                [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
-                [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{r['id']}")],
-                [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{r['id']}")],
-                [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")]
-            ])
-
-        await update.message.reply_text(text, reply_markup=kb)
-
-
-
-
+    await update.message.reply_text(text.strip())
 
 
 
@@ -1833,7 +1795,9 @@ async def mycargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("❌ Снять груз", callback_data=f"cargo_cancel_{r['id']}")],
                 [InlineKeyboardButton("🔁 Повторить", callback_data=f"cargo_clone_{r['id']}")],
-                [InlineKeyboardButton("🔝 Поднять груз", callback_data=f"cargo_refresh_{r['id']}")]
+                [InlineKeyboardButton("🔝 Поднять груз", callback_data=f"cargo_refresh_{r['id']}")],
+                [InlineKeyboardButton("🚀 Заявка: ТОП", callback_data=f"cargo_promo_boost_{r['id']}")],
+                [InlineKeyboardButton("⭐ Заявка: VIP", callback_data=f"cargo_promo_vip_{r['id']}")]
             ])
 
         await update.message.reply_text(
@@ -1847,6 +1811,62 @@ async def mycargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+
+
+
+
+async def cargo_promo_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    user_id = await ensure_user(q.from_user)
+
+    parts = q.data.split("_")
+    promo_type = parts[2]
+    cargo_id = int(parts[3])
+
+    cargo = await DB.fetchrow("""
+        SELECT id, created_by, from_city, to_city, price_amount, price_currency
+        FROM cargo
+        WHERE id=$1
+    """, cargo_id)
+
+    if not cargo:
+        await q.message.reply_text("❌ Груз не найден")
+        return
+
+    if cargo["created_by"] != user_id:
+        await q.message.reply_text("⛔ Можно продвигать только свой груз")
+        return
+
+    promo_text = "🚀 Поднять в ТОП" if promo_type == "boost" else "⭐ VIP груз"
+
+    await q.message.reply_text(
+        f"✅ Заявка отправлена администратору\n\n"
+        f"{promo_text}\n"
+        f"📦 Груз #{cargo['id']}\n"
+        f"🚩 {cargo['from_city']} → {cargo['to_city']}\n"
+        f"💰 {format_price(cargo['price_amount'])} {cargo['price_currency'] or 'RUB'}"
+    )
+
+    admin_text = (
+        f"💰 Новая заявка на продвижение\n\n"
+        f"{promo_text}\n"
+        f"📦 Груз #{cargo['id']}\n"
+        f"🚩 {cargo['from_city']} → {cargo['to_city']}\n"
+        f"💰 {format_price(cargo['price_amount'])} {cargo['price_currency'] or 'RUB'}\n\n"
+        f"Пользователь: {q.from_user.full_name}\n"
+        f"TG ID: {q.from_user.id}\n"
+        f"Username: @{q.from_user.username or '-'}\n\n"
+        f"Команды после оплаты:\n"
+        f"/boostcargo {cargo['id']} 7\n"
+        f"/vipcargo {cargo['id']} 30"
+    )
+
+    try:
+        await context.bot.send_message(chat_id=439871270, text=admin_text)
+    except Exception as e:
+        logging.warning(f"promo request notify admin failed: {e}")
 
 
 async def cargo_clone(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -3034,7 +3054,7 @@ async def topcarriers(update: Update, context: ContextTypes.DEFAULT_TYPE):
         LEFT JOIN reviews rv ON rv.to_user_id = u.id AND rv.deleted_at IS NULL
         GROUP BY u.id, u.full_name
         ORDER BY avg_score DESC, done_deals DESC
-        LIMIT 10
+        LIMIT 3
     """)
 
     if not rows:
@@ -3198,7 +3218,7 @@ async def topcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         LEFT JOIN deals d ON d.cargo_id = c.id
         GROUP BY c.id
         ORDER BY views_count DESC, responses_count DESC, c.id DESC
-        LIMIT 10
+        LIMIT 3
     """)
 
     if not rows:
@@ -3250,7 +3270,7 @@ async def toproutes(update: Update, context: ContextTypes.DEFAULT_TYPE):
           AND c.to_city IS NOT NULL
         GROUP BY c.from_city, c.to_city
         ORDER BY views_count DESC, cargo_count DESC, responses_count DESC
-        LIMIT 10
+        LIMIT 3
     """)
 
     if not rows:
@@ -3315,7 +3335,7 @@ async def topdispatchers(update: Update, context: ContextTypes.DEFAULT_TYPE):
         WHERE dc.status='active'
         GROUP BY dc.dispatcher_user_id, u.full_name, u.telegram_id
         ORDER BY clients_count DESC, deals_count DESC, turnover_done DESC
-        LIMIT 10
+        LIMIT 3
     """)
 
     if not rows:
@@ -3698,7 +3718,7 @@ async def truck_deal_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         WHERE created_by=$1
           AND status='open'
         ORDER BY id DESC
-        LIMIT 10
+        LIMIT 3
     """, user_id)
 
     if not cargos:
@@ -3821,7 +3841,7 @@ async def subroutes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         WHERE active=true
         GROUP BY from_city, to_city
         ORDER BY cnt DESC
-        LIMIT 10
+        LIMIT 3
     """)
 
     if not rows:
@@ -3843,7 +3863,7 @@ async def routes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         WHERE status='open'
         GROUP BY from_city, to_city
         ORDER BY cnt DESC
-        LIMIT 10
+        LIMIT 3
     """)
 
     if not rows:
@@ -4147,7 +4167,7 @@ async def searchdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
         WHERE dm.deal_id=$1
           AND dm.message_text ILIKE $2
         ORDER BY dm.id DESC
-        LIMIT 10
+        LIMIT 3
     """, deal_id, f"%{query}%")
 
     if not rows:
@@ -4884,7 +4904,7 @@ async def deal_docs_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
             FROM deal_documents
             WHERE deal_id=$1
             ORDER BY id DESC
-            LIMIT 10
+            LIMIT 3
         """, deal_id)
 
         text = f"📄 Документы сделки #{deal_id}\n\n"
@@ -6707,7 +6727,7 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
           AND c.load_latitude IS NOT NULL
           AND c.load_longitude IS NOT NULL
         ORDER BY c.id DESC
-        LIMIT 100
+        LIMIT 30
     """)
 
     found = []
@@ -7797,7 +7817,7 @@ async def dispatcher_client_deals_button(update: Update, context: ContextTypes.D
         LEFT JOIN responses r ON r.id = d.response_id
         WHERE c.created_by=$1 OR t.driver_id=$1 OR r.driver_id=$1
         ORDER BY d.created_at DESC
-        LIMIT 10
+        LIMIT 3
     """, client_id)
 
     commission = float(link["commission_percent"] or 0)
@@ -8094,10 +8114,6 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         reply_markup=InlineKeyboardMarkup(clean)
     )
 
-    await update.message.reply_text(
-        "Нижнее меню включено 👇",
-        reply_markup=main_reply_keyboard(role, verified, roles)
-    )
 
 
 async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -8648,6 +8664,7 @@ def main():
     app.add_handler(CommandHandler("mysubs", mysubs))
     app.add_handler(newcargo_handler)
 
+    app.add_handler(CallbackQueryHandler(cargo_promo_request, pattern="^cargo_promo_"))
     app.add_handler(CallbackQueryHandler(cargo_refresh, pattern="^cargo_refresh_"))
     app.add_handler(CallbackQueryHandler(cargo_clone, pattern="^cargo_clone_"))
     app.add_handler(CallbackQueryHandler(cargo_cancel, pattern="^cargo_cancel_"))
