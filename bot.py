@@ -1525,7 +1525,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     price_currency,
                     distance_km,
                     rate_per_km,
-                    status
+                    status,
+                    vip_until,
+                    boost_until
                 FROM cargo
                 WHERE id=$1
             """, cargo_id)
@@ -1560,8 +1562,17 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 WHERE cargo_id=$1
             """, cargo_id)
 
+            badges = ""
+            if cargo["vip_until"]:
+                badges += f"⭐ VIP груз до {cargo['vip_until'].strftime('%d.%m.%Y')}\n"
+            if cargo["boost_until"]:
+                badges += f"🚀 Поднят в ТОП до {cargo['boost_until'].strftime('%d.%m.%Y')}\n"
+            if badges:
+                badges += "\n"
+
             await update.message.reply_text(
                 (
+                    f"{badges}"
                     f"📦 Груз #{cargo['id']}\n"
                     f"🚩 {cargo['from_city']} → {cargo['to_city']}\n"
                     f"💰 {format_price(cargo['price_amount'])} {cargo['price_currency'] or 'RUB'}\n"
@@ -1671,6 +1682,8 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             c.price_amount,
             c.price_currency,
             c.status,
+            c.vip_until,
+            c.boost_until,
             c.load_latitude,
             c.load_longitude,
             COALESCE(u.plan_type, 'free') AS plan_type
@@ -1678,6 +1691,8 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         LEFT JOIN users u ON u.id = c.created_by
         WHERE c.status='open'
         ORDER BY
+            CASE WHEN c.boost_until > now() THEN 0 ELSE 1 END,
+            CASE WHEN c.vip_until > now() THEN 0 ELSE 1 END,
             CASE
                 WHEN COALESCE(u.plan_type, 'free')='company' THEN 1
                 WHEN COALESCE(u.plan_type, 'free')='pro' THEN 2
@@ -1709,7 +1724,14 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             dist = distance_km(my_truck["latitude"], my_truck["longitude"], r["load_latitude"], r["load_longitude"])
         rows_with_distance.append((dist, r))
 
-    rows_with_distance.sort(key=lambda x: (x[0] is None, x[0] if x[0] is not None else 999999))
+    rows_with_distance.sort(
+        key=lambda x: (
+            0 if x[1]["boost_until"] and x[1]["boost_until"] > datetime.now() else 1,
+            0 if x[1]["vip_until"] and x[1]["vip_until"] > datetime.now() else 1,
+            x[0] is None,
+            x[0] if x[0] is not None else 999999
+        )
+    )
 
     for dist, r in rows_with_distance:
         plan_type = r["plan_type"] if "plan_type" in r and r["plan_type"] else "free"
@@ -1725,7 +1747,14 @@ async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         distance_line = f"\n📍 До загрузки: {dist} км" if dist is not None else ""
 
+        cargo_badges = ""
+        if r["boost_until"] and r["boost_until"] > datetime.now():
+            cargo_badges += "🚀 Поднят в ТОП\n"
+        if r["vip_until"] and r["vip_until"] > datetime.now():
+            cargo_badges += "⭐ VIP груз\n"
+
         text = (
+            f"{cargo_badges}"
             f"📦 Груз #{r['id']}\n"
             f"🏷 Тариф: {badge}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
@@ -3310,6 +3339,80 @@ async def topdispatchers(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     await update.message.reply_text(text)
+
+
+
+
+async def boostcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if user_id != 1:
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Формат: /boostcargo CARGO_ID DAYS\nПример: /boostcargo 21 7")
+        return
+
+    try:
+        cargo_id = int(context.args[0])
+        days = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("❌ ID груза и дни должны быть числами")
+        return
+
+    row = await DB.fetchrow("""
+        UPDATE cargo
+        SET boost_until = now() + ($1::int * interval '1 day')
+        WHERE id=$2
+        RETURNING id, from_city, to_city, boost_until
+    """, days, cargo_id)
+
+    if not row:
+        await update.message.reply_text("❌ Груз не найден")
+        return
+
+    await update.message.reply_text(
+        f"🚀 Груз #{row['id']} поднят в ТОП\n"
+        f"{row['from_city']} → {row['to_city']}\n"
+        f"До: {row['boost_until']}"
+    )
+
+
+async def vipcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if user_id != 1:
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text("Формат: /vipcargo CARGO_ID DAYS\nПример: /vipcargo 21 30")
+        return
+
+    try:
+        cargo_id = int(context.args[0])
+        days = int(context.args[1])
+    except ValueError:
+        await update.message.reply_text("❌ ID груза и дни должны быть числами")
+        return
+
+    row = await DB.fetchrow("""
+        UPDATE cargo
+        SET vip_until = now() + ($1::int * interval '1 day')
+        WHERE id=$2
+        RETURNING id, from_city, to_city, vip_until
+    """, days, cargo_id)
+
+    if not row:
+        await update.message.reply_text("❌ Груз не найден")
+        return
+
+    await update.message.reply_text(
+        f"⭐ Груз #{row['id']} получил VIP\n"
+        f"{row['from_city']} → {row['to_city']}\n"
+        f"До: {row['vip_until']}"
+    )
 
 
 async def deletedcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -8476,6 +8579,8 @@ def main():
     app.add_handler(CommandHandler("topcargo", topcargo))
     app.add_handler(CommandHandler("toproutes", toproutes))
     app.add_handler(CommandHandler("topdispatchers", topdispatchers))
+    app.add_handler(CommandHandler("boostcargo", boostcargo))
+    app.add_handler(CommandHandler("vipcargo", vipcargo))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("rules", rules))
     app.add_handler(CommandHandler("support", support))
