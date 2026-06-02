@@ -1269,7 +1269,8 @@ app.get("/api/deals", async (req, res) => {
         c.price_amount,
         c.price_currency,
 
-        u.full_name as driver_name
+        u.full_name as driver_name,
+        ts.score as driver_trust_score
 
       FROM deals d
 
@@ -1281,6 +1282,9 @@ app.get("/api/deals", async (req, res) => {
 
       LEFT JOIN users u
         ON u.id = t.driver_id
+
+      LEFT JOIN trust_scores ts
+        ON ts.user_id = u.id
 
       ORDER BY d.id DESC
       LIMIT 200
@@ -1314,11 +1318,13 @@ app.get("/api/deal/:id", async (req, res) => {
         c.to_city,
         c.price_amount,
         c.price_currency,
-        u.full_name as driver_name
+        u.full_name as driver_name,
+        ts.score as driver_trust_score
       FROM deals d
       LEFT JOIN cargo c ON c.id=d.cargo_id
       LEFT JOIN trucks t ON t.id=d.truck_id
       LEFT JOIN users u ON u.id=t.driver_id
+      LEFT JOIN trust_scores ts ON ts.user_id=u.id
       WHERE d.id=$1
       LIMIT 1
     `, [dealId]);
@@ -1349,11 +1355,24 @@ app.get("/api/deal/:id", async (req, res) => {
 app.post("/api/deal/:id/status", async (req, res) => {
   try {
     const dealId = Number(req.params.id);
-    const { status } = req.body;
+    const { status, user_id } = req.body;
 
     if (!status) {
       return res.status(400).json({ success:false, error:"status_required" });
     }
+
+    const oldDeal = await pool.query(`
+      SELECT status
+      FROM deals
+      WHERE id=$1
+      LIMIT 1
+    `, [dealId]);
+
+    if (!oldDeal.rows.length) {
+      return res.status(404).json({ success:false, error:"deal_not_found" });
+    }
+
+    const oldStatus = oldDeal.rows[0].status;
 
     await pool.query(`
       UPDATE deals
@@ -1362,9 +1381,28 @@ app.post("/api/deal/:id/status", async (req, res) => {
     `, [status, dealId]);
 
     await pool.query(`
-      INSERT INTO deal_status_history(deal_id, status)
-      VALUES($1,$2)
-    `, [dealId, status]);
+      INSERT INTO deal_status_history(deal_id, status, created_by)
+      VALUES($1,$2,$3)
+    `, [dealId, status, user_id || null]);
+
+    await pool.query(`
+      INSERT INTO deal_audit_log(
+        deal_id,
+        user_id,
+        action,
+        old_value,
+        new_value,
+        meta
+      )
+      VALUES($1,$2,$3,$4,$5,$6)
+    `, [
+      dealId,
+      user_id || null,
+      "deal_status_changed",
+      oldStatus,
+      status,
+      JSON.stringify({ source: "dispatcher_web" })
+    ]);
 
     io.emit("deal_status_updated", {
       deal_id: dealId,

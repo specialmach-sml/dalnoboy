@@ -113,7 +113,7 @@ async function load() {
     <h2>🤝 Сделки</h2>
     <table>
       <thead>
-        <tr><th>ID</th><th>Груз</th><th>Машина</th><th>Статус</th></tr>
+        <tr><th>ID</th><th>Груз</th><th>Машина</th><th>Статус</th><th>Действие</th></tr>
       </thead>
       <tbody>
         ${dealItems.map(d => `
@@ -122,6 +122,7 @@ async function load() {
             <td>#${d.cargo_id} · ${d.from_city || "-"} → ${d.to_city || "-"}</td>
             <td>${d.driver_name ? "Перевозчик: " + d.driver_name : "Машина #" + (d.truck_id || "-")}</td>
             <td>${d.status || "-"}</td>
+            <td><button class="btn" onclick="openDeal(${d.id})">👁 Открыть</button></td>
           </tr>
         `).join("") || `<tr><td colspan="4" class="muted">Сделок пока нет</td></tr>`}
       </tbody>
@@ -137,6 +138,160 @@ load().catch(e => {
   document.getElementById("app").innerHTML =
     "<div class='bad'><h2>Ошибка загрузки</h2><p>" + e.message + "</p></div>";
 });
+
+async function setDealStatus(id,status){
+  await fetch("/api/deal/"+id+"/status",{
+    method:"POST",
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({status})
+  });
+
+  openDeal(id);
+  location.reload();
+}
+
+async function openDeal(id){
+
+const res=await fetch("/api/deal/"+id);
+const data=await res.json();
+
+if(!data.success){
+alert("Сделка не найдена");
+return;
+}
+
+const d=data.deal;
+const history=data.history||[];
+
+let box=document.getElementById("dealModal");
+
+if(box) box.remove();
+
+box=document.createElement("div");
+
+box.id="dealModal";
+
+box.style=`
+position:fixed;
+right:0;
+top:0;
+width:520px;
+height:100%;
+background:white;
+z-index:99999;
+overflow:auto;
+box-shadow:-10px 0 30px rgba(0,0,0,.2);
+padding:24px;
+`;
+
+box.innerHTML=`
+<div style="display:flex;justify-content:space-between">
+
+<h2>🤝 Сделка #${d.id}</h2>
+
+<button onclick="dealModal.remove()">✖</button>
+
+</div>
+
+<p><b>Маршрут</b><br>
+${(d.from_city||"-").split(",")[0]}
+→
+${(d.to_city||"-").split(",")[0]}</p>
+
+<p><b>Цена груза</b><br>
+${money(d.price_amount)}</p>
+
+<div style="background:#f3f4f6;padding:14px;border-radius:12px;margin:14px 0">
+  <h3 style="margin-top:0">💰 Финансы сделки</h3>
+  <p><b>Клиент платит:</b> ${money(d.client_price)}</p>
+  <p><b>Перевозчику:</b> ${money(d.carrier_price)}</p>
+  <p><b>Прибыль диспетчера:</b> ${money(d.dispatcher_profit)}</p>
+</div>
+
+<p><b>Перевозчик</b><br>
+${d.driver_name||"-"}</p>
+
+<p><b>Индекс доверия перевозчика</b><br>
+${d.driver_trust_score || 50} / 100</p>
+
+<p><b>Статус</b><br>
+<span style="
+padding:6px 12px;
+background:#eef4ff;
+border-radius:10px">
+${d.status}
+</span></p>
+
+<div style="background:#ecfdf5;padding:14px;border-radius:12px;margin:14px 0">
+  <h3 style="margin-top:0">🛡 Безопасная сделка</h3>
+  <p><b>Статус:</b> ${d.safe_deal_status || "draft"}</p>
+  <p>📦 Заказчик: ${d.shipper_confirmed ? "✅ подтверждено" : "❌ нет"}</p>
+  <p>🚚 Перевозчик: ${d.carrier_confirmed ? "✅ подтверждено" : "❌ нет"}</p>
+  <p>👨‍💼 Диспетчер: ${d.dispatcher_confirmed ? "✅ подтверждено" : "❌ нет"}</p>
+  <p>💳 Оплата: ${d.payment_status || "pending"}</p>
+</div>
+
+<div style="display:flex;gap:8px;flex-wrap:wrap">
+
+<button class="btn"
+onclick="setDealStatus(${d.id},'in_progress')">
+
+📍 В пути
+
+</button>
+
+<button class="btn"
+
+onclick="setDealStatus(${d.id},'done')">
+
+✅ Доставлено
+
+</button>
+
+<button class="btn"
+
+style="background:#c62828"
+
+onclick="setDealStatus(${d.id},'cancelled')">
+
+❌ Отменить
+
+</button>
+
+</div>
+
+<hr>
+
+<h3>История</h3>
+
+${
+history.length
+?
+history.map(x=>`
+<div style="
+padding:10px;
+border-bottom:1px solid #eee">
+
+${x.status}
+
+<br>
+
+<small>
+
+${new Date(x.created_at).toLocaleString("ru-RU")}
+
+</small>
+
+</div>
+`).join("")
+:
+"<p>Пока пусто</p>"
+}
+`;
+
+document.body.append(box);
+
+}
 </script>
 </body>
 </html>
