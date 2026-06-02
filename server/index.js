@@ -1418,6 +1418,72 @@ app.post("/api/deal/:id/status", async (req, res) => {
 });
 
 
+
+app.post("/api/disputes", async (req, res) => {
+  try {
+    const { deal_id, opened_by, reason, description } = req.body;
+
+    if (!deal_id || !reason) {
+      return res.status(400).json({ success:false, error:"deal_id_reason_required" });
+    }
+
+    const row = await pool.query(`
+      INSERT INTO disputes(deal_id, opened_by, reason, description)
+      VALUES($1,$2,$3,$4)
+      RETURNING *
+    `, [deal_id, opened_by || null, reason, description || null]);
+
+    await pool.query(`
+      UPDATE deals
+      SET dispute=true, updated_at=now()
+      WHERE id=$1
+    `, [deal_id]);
+
+    await pool.query(`
+      INSERT INTO deal_audit_log(deal_id, user_id, action, new_value, meta)
+      VALUES($1,$2,$3,$4,$5)
+    `, [
+      deal_id,
+      opened_by || null,
+      "dispute_opened",
+      reason,
+      JSON.stringify({ description: description || "" })
+    ]);
+
+    res.json({ success:true, dispute: row.rows[0] });
+
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ success:false, error:e.message });
+  }
+});
+
+app.get("/api/disputes", async (req, res) => {
+  try {
+    const rows = await pool.query(`
+      SELECT
+        ds.*,
+        d.status AS deal_status,
+        c.from_city,
+        c.to_city,
+        u.full_name AS opened_by_name
+      FROM disputes ds
+      LEFT JOIN deals d ON d.id=ds.deal_id
+      LEFT JOIN cargo c ON c.id=d.cargo_id
+      LEFT JOIN users u ON u.id=ds.opened_by
+      ORDER BY ds.id DESC
+      LIMIT 200
+    `);
+
+    res.json({ success:true, count:rows.rows.length, items:rows.rows });
+
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ success:false, error:e.message });
+  }
+});
+
+
 app.get("/", (req, res) => {
   res.sendFile("/root/dalnoboy/web/map.html");
 });
