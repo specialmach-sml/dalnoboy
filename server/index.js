@@ -1302,6 +1302,84 @@ app.get("/api/deals", async (req, res) => {
 });
 
 
+
+app.get("/api/deal/:id", async (req, res) => {
+  try {
+    const dealId = Number(req.params.id);
+
+    const deal = await pool.query(`
+      SELECT
+        d.*,
+        c.from_city,
+        c.to_city,
+        c.price_amount,
+        c.price_currency,
+        u.full_name as driver_name
+      FROM deals d
+      LEFT JOIN cargo c ON c.id=d.cargo_id
+      LEFT JOIN trucks t ON t.id=d.truck_id
+      LEFT JOIN users u ON u.id=t.driver_id
+      WHERE d.id=$1
+      LIMIT 1
+    `, [dealId]);
+
+    if (!deal.rows.length) {
+      return res.status(404).json({ success:false, error:"deal_not_found" });
+    }
+
+    const history = await pool.query(`
+      SELECT *
+      FROM deal_status_history
+      WHERE deal_id=$1
+      ORDER BY created_at DESC
+    `, [dealId]);
+
+    res.json({
+      success:true,
+      deal: deal.rows[0],
+      history: history.rows
+    });
+
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ success:false, error:e.message });
+  }
+});
+
+app.post("/api/deal/:id/status", async (req, res) => {
+  try {
+    const dealId = Number(req.params.id);
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ success:false, error:"status_required" });
+    }
+
+    await pool.query(`
+      UPDATE deals
+      SET status=$1, updated_at=now()
+      WHERE id=$2
+    `, [status, dealId]);
+
+    await pool.query(`
+      INSERT INTO deal_status_history(deal_id, status)
+      VALUES($1,$2)
+    `, [dealId, status]);
+
+    io.emit("deal_status_updated", {
+      deal_id: dealId,
+      status
+    });
+
+    res.json({ success:true });
+
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({ success:false, error:e.message });
+  }
+});
+
+
 app.get("/", (req, res) => {
   res.sendFile("/root/dalnoboy/web/map.html");
 });
