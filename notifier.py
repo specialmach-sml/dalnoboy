@@ -24,14 +24,28 @@ def distance_km(lat1, lon1, lat2, lon2):
     return round(r * 2 * atan2(sqrt(a), sqrt(1 - a)), 1)
 
 
-async def send_message(chat_id, text):
+def format_price(v):
+    if v is None:
+        return "-"
+    try:
+        return f"{int(float(v)):,}".replace(",", " ")
+    except Exception:
+        return str(v)
+
+
+async def send_message(chat_id, text, reply_markup=None):
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
 
+    payload = {
+        "chat_id": chat_id,
+        "text": text
+    }
+
+    if reply_markup:
+        payload["reply_markup"] = reply_markup
+
     async with aiohttp.ClientSession() as session:
-        await session.post(url, json={
-            "chat_id": chat_id,
-            "text": text
-        })
+        await session.post(url, json=payload)
 
 
 async def main():
@@ -99,15 +113,29 @@ async def main():
                     VALUES($1,$2)
                 """, cargo["id"], truck["id"])
 
+                price_amount = float(cargo["price_amount"]) if cargo["price_amount"] is not None else 0
+                rate_per_km = float(cargo["rate_per_km"]) if cargo["rate_per_km"] is not None else None
+
                 text = (
                     f"🟢 Новый выгодный груз\n\n"
                     f"🚩 {cargo['from_city']} → {cargo['to_city']}\n"
-                    f"💰 {cargo['price_amount']} RUB\n"
+                    f"💰 {format_price(price_amount)} RUB\n"
                     f"📍 {dist} км до загрузки\n"
-                    f"💵 {cargo['rate_per_km']} ₽/км"
+                    f"💵 {round(rate_per_km, 2) if rate_per_km else 'ставка не указана'} ₽/км"
                 )
 
-                await send_message(truck["telegram_id"], text)
+                reply_markup = {
+                    "inline_keyboard": [
+                        [{"text": "🚛 Откликнуться", "callback_data": f"cargo_{cargo['id']}"}],
+                        [{"text": "🔔 Следить за маршрутом", "callback_data": f"subroute_{cargo['id']}"}],
+                        [
+                            {"text": "📤 Поделиться", "callback_data": f"cargo_share_{cargo['id']}"},
+                            {"text": "🔗 Получить ссылку", "callback_data": f"cargo_link_{cargo['id']}"}
+                        ]
+                    ]
+                }
+
+                await send_message(truck["telegram_id"], text, reply_markup=reply_markup)
 
                 print("NOTIFIED", cargo["id"], truck["id"])
 

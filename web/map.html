@@ -288,10 +288,15 @@ map.on('click', function(e) {
 
     pickupPoint = e.latlng;
 
-    pickupMarker = L.marker(e.latlng)
+    pickupMarker = L.marker(e.latlng, { draggable: true })
       .addTo(map)
       .bindPopup('📦 Точка загрузки')
       .openPopup();
+
+    pickupMarker.on('dragend', function(ev) {
+      pickupPoint = ev.target.getLatLng();
+      if (dropoffPoint) drawSelectedRoute();
+    });
 
     alert('Теперь кликни ТОЧКУ ВЫГРУЗКИ');
 
@@ -302,10 +307,15 @@ map.on('click', function(e) {
 
     dropoffPoint = e.latlng;
 
-    dropoffMarker = L.marker(e.latlng)
+    dropoffMarker = L.marker(e.latlng, { draggable: true })
       .addTo(map)
       .bindPopup('🏁 Точка выгрузки')
       .openPopup();
+
+    dropoffMarker.on('dragend', function(ev) {
+      dropoffPoint = ev.target.getLatLng();
+      if (pickupPoint) drawSelectedRoute();
+    });
 
     const url =
       'https://router.project-osrm.org/route/v1/driving/' +
@@ -453,10 +463,15 @@ async function findPickupAddress() {
 
   if (pickupMarker) map.removeLayer(pickupMarker);
 
-  pickupMarker = L.marker(pickupPoint)
+  pickupMarker = L.marker(pickupPoint, { draggable: true })
     .addTo(map)
     .bindPopup('📦 Загрузка<br>' + point.name)
     .openPopup();
+
+  pickupMarker.on('dragend', function(ev) {
+    pickupPoint = ev.target.getLatLng();
+    if (dropoffPoint) drawSelectedRoute();
+  });
 
   map.setView(pickupPoint, 13);
 
@@ -481,10 +496,15 @@ async function findDropoffAddress() {
 
   if (dropoffMarker) map.removeLayer(dropoffMarker);
 
-  dropoffMarker = L.marker(dropoffPoint)
+  dropoffMarker = L.marker(dropoffPoint, { draggable: true })
     .addTo(map)
     .bindPopup('🏁 Выгрузка<br>' + point.name)
     .openPopup();
+
+  dropoffMarker.on('dragend', function(ev) {
+    dropoffPoint = ev.target.getLatLng();
+    if (pickupPoint) drawSelectedRoute();
+  });
 
   if (pickupPoint) {
     drawSelectedRoute();
@@ -1886,11 +1906,12 @@ textarea,
 
 
 
+<script>
 setTimeout(() => {
   const tgId = getTelegramUserId ? getTelegramUserId() : telegramUserId;
 
   // DEV ACCESS
-  const allowedBrowserIds = [8612087868];
+  const allowedBrowserIds = [8612087868, 8253347001];
 
   const urlParams = new URLSearchParams(window.location.search);
   const devId = Number(urlParams.get("dev"));
@@ -1934,4 +1955,5 @@ setTimeout(() => {
   }
 
 }, 1500);
+</script>
 

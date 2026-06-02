@@ -1252,6 +1252,56 @@ app.post("/api/realtime/deal-status", async (req, res) => {
 
 
 
+
+app.get("/api/deals", async (req, res) => {
+  try {
+    const rows = await pool.query(`
+      SELECT
+        d.id,
+        d.status,
+        d.created_at,
+        d.updated_at,
+        d.cargo_id,
+        d.truck_id,
+
+        c.from_city,
+        c.to_city,
+        c.price_amount,
+        c.price_currency,
+
+        u.full_name as driver_name
+
+      FROM deals d
+
+      LEFT JOIN cargo c
+        ON c.id = d.cargo_id
+
+      LEFT JOIN trucks t
+        ON t.id = d.truck_id
+
+      LEFT JOIN users u
+        ON u.id = t.driver_id
+
+      ORDER BY d.id DESC
+      LIMIT 200
+    `);
+
+    res.json({
+      success: true,
+      count: rows.rows.length,
+      items: rows.rows
+    });
+
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      error: e.message
+    });
+  }
+});
+
+
 app.get("/", (req, res) => {
   res.sendFile("/root/dalnoboy/web/map.html");
 });

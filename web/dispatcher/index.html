@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Кабинет диспетчера — Dalnoboy</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    body { margin:0; font-family:Arial,sans-serif; background:#f3f4f6; color:#111; }
+    header { background:#111827; color:white; padding:16px 24px; font-size:20px; font-weight:700; }
+    .wrap { padding:20px; }
+    .cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:14px; margin-bottom:20px; }
+    .card { background:white; border-radius:14px; padding:16px; box-shadow:0 2px 10px rgba(0,0,0,.08); }
+    .num { font-size:28px; font-weight:800; margin-top:8px; }
+    h2 { margin-top:28px; }
+    table { width:100%; border-collapse:collapse; background:white; border-radius:14px; overflow:hidden; }
+    th,td { padding:12px; border-bottom:1px solid #eee; text-align:left; font-size:14px; }
+    th { background:#f9fafb; }
+    .muted { color:#666; }
+    .bad { padding:30px; text-align:center; }
+    .btn { display:inline-block; padding:8px 12px; border-radius:8px; background:#2563eb; color:white; text-decoration:none; }
+  </style>
+</head>
+<body>
+<header>🚛 Dalnoboy — кабинет диспетчера</header>
+
+<div id="app" class="wrap">
+  Загрузка...
+</div>
+
+<script>
+const allowedBrowserIds = [8612087868, 8253347001];
+
+const params = new URLSearchParams(location.search);
+const devId = Number(params.get("dev"));
+
+if (!allowedBrowserIds.includes(devId)) {
+  document.getElementById("app").innerHTML = `
+    <div class="bad">
+      <h2>Доступ закрыт</h2>
+      <p>Откройте кабинет по персональной ссылке диспетчера.</p>
+    </div>
+  `;
+  throw new Error("no dispatcher access");
+}
+
+function money(v) {
+  if (!v) return "-";
+  return Number(v).toLocaleString("ru-RU") + " ₽";
+}
+
+async function load() {
+  const [cargoRes, trucksRes, dealsRes] = await Promise.all([
+    fetch("/api/cargo/open"),
+    fetch("/api/trucks/active"),
+    fetch("/api/deals")
+  ]);
+
+  const cargo = await cargoRes.json();
+  const trucks = await trucksRes.json();
+  const deals = await dealsRes.json();
+
+  const cargoItems = cargo.items || [];
+  const truckItems = trucks.items || [];
+  const dealItems = deals.items || [];
+
+  document.getElementById("app").innerHTML = `
+    <div class="cards">
+      <div class="card">📦 Открытые грузы<div class="num">${cargoItems.length}</div></div>
+      <div class="card">🚚 Активные машины<div class="num">${truckItems.length}</div></div>
+      <div class="card">🤝 Активные сделки<div class="num">${dealItems.length}</div></div>
+      <div class="card">⚠️ Проблемы<div class="num">0</div></div>
+    </div>
+
+    <h2>📦 Грузы</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th><th>Маршрут</th><th>Цена</th><th>Ставка</th><th>Статус</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${cargoItems.map(c => `
+          <tr>
+            <td>#${c.id}</td>
+            <td>${c.from_city || "-"} → ${c.to_city || "-"}</td>
+            <td>${money(c.price_amount)}</td>
+            <td>${c.rate_per_km ? c.rate_per_km + " ₽/км" : "-"}</td>
+            <td>${c.status || "open"}</td>
+          </tr>
+        `).join("") || `<tr><td colspan="5" class="muted">Грузов пока нет</td></tr>`}
+      </tbody>
+    </table>
+
+    <h2>🚚 Машины</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>ID</th><th>Перевозчик</th><th>Статус</th><th>Последняя активность</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${truckItems.map(t => `
+          <tr>
+            <td>#${t.id}</td>
+            <td>Перевозчик #${t.driver_id}</td>
+            <td>${t.online_status || "-"}</td>
+            <td>${t.location_updated_at ? new Date(t.location_updated_at).toLocaleString("ru-RU") : "-"}</td>
+          </tr>
+        `).join("") || `<tr><td colspan="4" class="muted">Активных машин пока нет</td></tr>`}
+      </tbody>
+    </table>
+
+    <h2>🤝 Сделки</h2>
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Груз</th><th>Машина</th><th>Статус</th></tr>
+      </thead>
+      <tbody>
+        ${dealItems.map(d => `
+          <tr>
+            <td>#${d.id}</td>
+            <td>#${d.cargo_id} · ${d.from_city || "-"} → ${d.to_city || "-"}</td>
+            <td>${d.driver_name ? "Перевозчик: " + d.driver_name : "Машина #" + (d.truck_id || "-")}</td>
+            <td>${d.status || "-"}</td>
+          </tr>
+        `).join("") || `<tr><td colspan="4" class="muted">Сделок пока нет</td></tr>`}
+      </tbody>
+    </table>
+
+    <p style="margin-top:24px;">
+      <a class="btn" href="/?dev=${devId}">🗺 Открыть карту</a>
+    </p>
+  `;
+}
+
+load().catch(e => {
+  document.getElementById("app").innerHTML =
+    "<div class='bad'><h2>Ошибка загрузки</h2><p>" + e.message + "</p></div>";
+});
+</script>
+</body>
+</html>

@@ -193,7 +193,12 @@ def human_status(v):
     mapping = {
         "open": "🟢 Открыт",
         "pending": "🟡 Ожидает",
-        "active": "🚚 В пути",
+        "active": "🤝 Сделка создана",
+        "to_pickup": "🚚 Еду на загрузку",
+        "loading": "📍 На загрузке",
+        "loaded": "📦 Загружен",
+        "in_progress": "🚚 В пути",
+        "delivered": "🏁 Доставлен",
         "done": "✅ Завершён",
         "closed": "❌ Закрыт",
         "cancelled": "❌ Отменён"
@@ -919,7 +924,8 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             longitude,
             location_updated_at,
             photo_file_id,
-            min_rate_per_km
+            min_rate_per_km,
+            search_radius_km
         FROM trucks
         WHERE driver_id=$1
         ORDER BY id DESC
@@ -938,11 +944,22 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("✏️ Номер", callback_data="truck_edit_plate_number"),
             InlineKeyboardButton("📍 Город", callback_data="truck_edit_current_city")
         ],
+        [
+            InlineKeyboardButton("📦 Кузов", callback_data="truck_edit_body_type"),
+            InlineKeyboardButton("⚖️ Тоннаж", callback_data="truck_edit_capacity_tons")
+        ],
+        [
+            InlineKeyboardButton("📦 Объём", callback_data="truck_edit_volume_m3"),
+            InlineKeyboardButton("📝 Описание", callback_data="truck_edit_comment")
+        ],
         [InlineKeyboardButton("📷 Фото машины", callback_data="truck_photo")],
         [InlineKeyboardButton("🔁 Обновить в поиске", callback_data=f"truck_refresh_{truck['id']}")],
         [InlineKeyboardButton("📍 Обновить GEO вручную", callback_data="truck_geo")],
         [InlineKeyboardButton("📍 Грузы рядом", callback_data="menu_nearby")],
-        [InlineKeyboardButton("💰 Ставка ₽/км", callback_data="settings_rate")],
+        [
+            InlineKeyboardButton("💰 Ставка ₽/км", callback_data="settings_rate"),
+            InlineKeyboardButton("🛣 Радиус", callback_data="settings_radius")
+        ],
         [InlineKeyboardButton("🙈 Скрыть из поиска", callback_data=f"truck_hide_{truck['id']}")]
     ])
 
@@ -956,6 +973,7 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\n"
         f"📦 Объём: {truck['volume_m3'] or '-'} м³\n"
         f"💰 Мин. ставка: {truck['min_rate_per_km'] or '-'} ₽/км\n"
+        f"🛣 Радиус поиска: {truck['search_radius_km'] or '-'} км\n"
         f"🌐 GEO: {(str(round(float(truck['latitude']), 4)) + ', ' + str(round(float(truck['longitude']), 4))) if truck['latitude'] and truck['longitude'] else 'не найдено'}\n"
         f"🟢 Гео активно\n"
         f"📝 {truck['comment'] or 'Комментариев нет'}\n"
@@ -1077,7 +1095,11 @@ async def truck_edit_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "brand": "марку машины",
         "model": "модель машины",
         "plate_number": "госномер",
-        "current_city": "текущий город"
+        "current_city": "текущий город",
+        "body_type": "тип кузова (например: тент, фургон, реф, борт, эвакуатор)",
+        "capacity_tons": "тоннаж в тоннах (например: 1.5)",
+        "volume_m3": "объём в м³ (например: 12)",
+        "comment": "описание машины"
     }
 
     if field not in labels:
@@ -1120,6 +1142,34 @@ async def truck_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         await mytruck(update, context)
         return
 
+    if context.user_data.get("awaiting_radius"):
+        context.user_data["awaiting_radius"] = False
+
+        try:
+            radius = int(float(update.message.text.strip().replace(",", ".")))
+        except ValueError:
+            await update.message.reply_text("❌ Введите число, например: 100")
+            context.user_data["awaiting_radius"] = True
+            return
+
+        user_id = await ensure_user(update.effective_user)
+
+        await DB.execute("""
+            UPDATE trucks
+            SET search_radius_km=$1
+            WHERE id=(
+                SELECT id
+                FROM trucks
+                WHERE driver_id=$2
+                ORDER BY id DESC
+                LIMIT 1
+            )
+        """, radius, user_id)
+
+        await update.message.reply_text(f"✅ Радиус поиска сохранён: {radius} км")
+        await mytruck(update, context)
+        return
+
     field = context.user_data.get("truck_edit_field")
 
     if not field:
@@ -1139,7 +1189,11 @@ async def truck_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
         "brand": "brand",
         "model": "model",
         "plate_number": "plate_number",
-        "current_city": "current_city"
+        "current_city": "current_city",
+        "body_type": "body_type",
+        "capacity_tons": "capacity_tons",
+        "volume_m3": "volume_m3",
+        "comment": "comment"
     }
 
     column = allowed.get(field)
@@ -3553,6 +3607,8 @@ async def findtruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             t.id AS truck_id,
             t.current_city,
             t.body_type,
+            c.created_by AS owner_id,
+            COALESCE(r.driver_id, t.driver_id) AS driver_id,
             t.capacity_tons,
             t.volume_m3,
             t.comment,
@@ -4573,24 +4629,29 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 response["truck_id"]
             )
 
-        try:
-            await context.bot.send_message(
-                chat_id=response["telegram_id"],
-                text=(
-                    f"✅ Ваш отклик принят!\n"
-                    f"📦 Груз #{response['cargo_id']}: {response['from_city']} → {response['to_city']}\n"
-                    f"💬 Чат по грузу создан"
-                )
-            )
-        except Exception as e:
-            logging.error(f"accept notify failed: {e}")
-
         deal_id = await DB.fetchval("""
             SELECT id
             FROM deals
             WHERE response_id=$1
             LIMIT 1
         """, response_id)
+
+        try:
+            await context.bot.send_message(
+                chat_id=response["telegram_id"],
+                text=(
+                    f"✅ Ваш отклик принят!\n"
+                    f"📦 Груз #{response['cargo_id']}: {response['from_city']} → {response['to_city']}\n"
+                    f"🤝 Сделка #{deal_id} создана"
+                ),
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🤝 Открыть сделку", callback_data="menu_deals")],
+                    [InlineKeyboardButton("💬 Чат сделки", callback_data=f"deal_chat_{deal_id}")],
+                    [InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{deal_id}")]
+                ])
+            )
+        except Exception as e:
+            logging.error(f"accept notify failed: {e}")
 
         await emit_response_status(
             response_id,
@@ -4609,7 +4670,9 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 f"💬 Переговоры #{deal_id} создана"
             ),
             reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("💬 Открыть чат", callback_data=f"deal_chat_{deal_id}")]
+                [InlineKeyboardButton("🤝 Открыть сделку", callback_data="menu_deals")],
+                [InlineKeyboardButton("💬 Чат сделки", callback_data=f"deal_chat_{deal_id}")],
+                [InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{deal_id}")]
             ])
         )
         return
@@ -4676,39 +4739,56 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             + f"📊 Статус: {human_status(r['status'])}"
         )
 
-        buttons = [
-            [
-                InlineKeyboardButton("🚚 Еду на загрузку", callback_data=f"deal_to_pickup_{r['id']}")
-            ],
-            [
-                InlineKeyboardButton("📍 На загрузке", callback_data=f"deal_loading_{r['id']}"),
-                InlineKeyboardButton("📦 Загружен", callback_data=f"deal_loaded_{r['id']}")
-            ],
-            [
-                InlineKeyboardButton("🏁 Доставлен", callback_data=f"deal_delivered_{r['id']}"),
-                InlineKeyboardButton("❌ Отменить", callback_data=f"deal_cancelled_{r['id']}")
-            ],
-            [
-                InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
-                InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
-            ],
-            [
-                InlineKeyboardButton("📄 Отчёт", callback_data=f"deal_report_{r['id']}")
-            ],
-            [
-                InlineKeyboardButton("📄 Документы", callback_data=f"deal_docs_{r['id']}"),
-                InlineKeyboardButton("📸 Фото загрузки", callback_data=f"deal_loadphoto_{r['id']}")
-            ],
-            [
-                InlineKeyboardButton("📸 Фото выгрузки", callback_data=f"deal_unloadphoto_{r['id']}")
-            ],
-            [
-                InlineKeyboardButton(
-                    "✅ Закрыть спор" if r["dispute"] else "⚠️ Открыть спор",
-                    callback_data=f"deal_closedispute_{r['id']}" if r["dispute"] else f"deal_dispute_{r['id']}"
-                )
+        is_driver = user_id == r["driver_id"]
+        is_owner = user_id == r["owner_id"]
+
+        if is_driver:
+            buttons = [
+                [InlineKeyboardButton("🚚 Еду на загрузку", callback_data=f"deal_to_pickup_{r['id']}")],
+                [
+                    InlineKeyboardButton("📍 На загрузке", callback_data=f"deal_loading_{r['id']}"),
+                    InlineKeyboardButton("📦 Загружен", callback_data=f"deal_loaded_{r['id']}")
+                ],
+                [
+                    InlineKeyboardButton("🏁 Доставлен", callback_data=f"deal_delivered_{r['id']}"),
+                    InlineKeyboardButton("❌ Отменить", callback_data=f"deal_cancelled_{r['id']}")
+                ],
+                [
+                    InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
+                    InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
+                ],
+                [InlineKeyboardButton("📄 Отчёт", callback_data=f"deal_report_{r['id']}")],
+                [
+                    InlineKeyboardButton("📄 Документы", callback_data=f"deal_docs_{r['id']}"),
+                    InlineKeyboardButton("📸 Фото загрузки", callback_data=f"deal_loadphoto_{r['id']}")
+                ],
+                [InlineKeyboardButton("📸 Фото выгрузки", callback_data=f"deal_unloadphoto_{r['id']}")],
+                [
+                    InlineKeyboardButton(
+                        "✅ Закрыть спор" if r["dispute"] else "⚠️ Открыть спор",
+                        callback_data=f"deal_closedispute_{r['id']}" if r["dispute"] else f"deal_dispute_{r['id']}"
+                    )
+                ]
             ]
-        ]
+        else:
+            buttons = [
+                [
+                    InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
+                    InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
+                ],
+                [InlineKeyboardButton("📄 Отчёт", callback_data=f"deal_report_{r['id']}")],
+                [
+                    InlineKeyboardButton("📄 Документы", callback_data=f"deal_docs_{r['id']}"),
+                    InlineKeyboardButton("📸 Фото загрузки", callback_data=f"deal_loadphoto_{r['id']}")
+                ],
+                [InlineKeyboardButton("📸 Фото выгрузки", callback_data=f"deal_unloadphoto_{r['id']}")],
+                [
+                    InlineKeyboardButton(
+                        "✅ Закрыть спор" if r["dispute"] else "⚠️ Открыть спор",
+                        callback_data=f"deal_closedispute_{r['id']}" if r["dispute"] else f"deal_dispute_{r['id']}"
+                    )
+                ]
+            ]
 
         if r["status"] in ("done", "delivered"):
             buttons.append([
@@ -7168,15 +7248,16 @@ async def auto_profit_loop(app: Application):
                             if exists:
                                 continue
 
+                            price_amount = float(r["price_amount"]) if r.get("price_amount") is not None else 0
+                            rate_per_km = float(r["rate_per_km"]) if r.get("rate_per_km") is not None else None
+
                             text = (
                                 f"🔔 Новый выгодный груз\n\n"
                                 f"📦 Груз #{r['id']}\n"
                                 f"📍 {r['from_city']} → {r['to_city']}\n\n"
-                                f"💰 {format_price(r['price_amount'])} ₽\n"
+                                f"💰 {format_price(price_amount)} ₽\n"
                                 f"📏 {r.get('distance_km') or '-'} км до загрузки\n"
-                                f"💵 {round(float(r['rate_per_km']), 2) if r.get('rate_per_km') else 'ставка не указана'} ₽/км\n\n"
-                                f"👇 Открыть груз:\n"
-                                f"https://t.me/dalnoboybros_bot?start=cargo_{r['id']}"
+                                f"💵 {round(rate_per_km, 2) if rate_per_km else 'ставка не указана'} ₽/км"
                             )
 
                             await app.bot.send_message(
@@ -7184,8 +7265,11 @@ async def auto_profit_loop(app: Application):
                                 text=text,
                                 reply_markup=InlineKeyboardMarkup([
                                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{r['id']}")],
-                [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{r['id']}")],
-                [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{r['id']}")]
+                                    [InlineKeyboardButton("🔔 Следить за маршрутом", callback_data=f"subroute_{r['id']}")],
+                                    [
+                                        InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{r['id']}"),
+                                        InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{r['id']}")
+                                    ]
                                 ])
                             )
 
@@ -7497,9 +7581,11 @@ async def access_request_admin_action(update: Update, context: ContextTypes.DEFA
 
     await DB.execute("""
         UPDATE users
-        SET verified=true, banned=false
+        SET role=$2,
+            verified=true,
+            banned=false
         WHERE id=$1
-    """, req["user_id"])
+    """, req["user_id"], role)
 
     await DB.execute("""
         INSERT INTO user_roles (user_id, role, verified, active, paid)
