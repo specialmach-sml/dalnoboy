@@ -2,6 +2,7 @@ import aiohttp
 import asyncio
 import logging
 import shutil
+import os
 import qrcode
 import subprocess
 from datetime import datetime
@@ -2512,6 +2513,15 @@ async def admindisputes(update: Update, context: ContextTypes.DEFAULT_TYPE):
         SELECT
             d.id,
             d.status,
+            d.client_price,
+            d.carrier_price,
+            d.dispatcher_profit,
+            d.safe_deal_status,
+            d.shipper_confirmed,
+            d.carrier_confirmed,
+            d.dispatcher_confirmed,
+            d.payment_status,
+            d.dispute,
             c.from_city,
             c.to_city,
             c.price_amount,
@@ -3642,6 +3652,7 @@ async def findtruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             COALESCE(r.driver_id, t.driver_id) AS driver_id,
             t.capacity_tons,
             t.volume_m3,
+            t.photo_url,
             t.comment,
             u.full_name,
             u.verified,
@@ -5283,7 +5294,8 @@ async def dealdebug(update: Update, context: ContextTypes.DEFAULT_TYPE):
             owner.telegram_id AS owner_tg,
             owner.full_name AS owner_name,
             driver.telegram_id AS driver_tg,
-            driver.full_name AS driver_name
+            driver.full_name AS driver_name,
+            ts.score AS driver_trust_score
         FROM deals d
         JOIN cargo c ON c.id = d.cargo_id
         JOIN trucks t ON t.id = d.truck_id
@@ -5430,6 +5442,7 @@ async def dealact(update: Update, context: ContextTypes.DEFAULT_TYPE):
         JOIN users owner ON owner.id = c.created_by
         LEFT JOIN responses r ON r.id = d.response_id
         JOIN users driver ON driver.id = COALESCE(r.driver_id, t.driver_id)
+        LEFT JOIN trust_scores ts ON ts.user_id = driver.id
         WHERE d.id=$1
     """, deal_id)
 
@@ -5551,6 +5564,15 @@ async def dealpdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         SELECT
             d.id,
             d.status,
+            d.client_price,
+            d.carrier_price,
+            d.dispatcher_profit,
+            d.safe_deal_status,
+            d.shipper_confirmed,
+            d.carrier_confirmed,
+            d.dispatcher_confirmed,
+            d.payment_status,
+            d.dispute,
             c.id AS cargo_id,
             c.from_city,
             c.to_city,
@@ -5564,14 +5586,17 @@ async def dealpdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
             t.body_type,
             t.capacity_tons,
             t.volume_m3,
+            t.photo_url,
             owner.full_name AS owner_name,
-            driver.full_name AS driver_name
+            driver.full_name AS driver_name,
+            ts.score AS driver_trust_score
         FROM deals d
         JOIN cargo c ON c.id = d.cargo_id
         JOIN trucks t ON t.id = d.truck_id
         JOIN users owner ON owner.id = c.created_by
         LEFT JOIN responses r ON r.id = d.response_id
         JOIN users driver ON driver.id = COALESCE(r.driver_id, t.driver_id)
+        LEFT JOIN trust_scores ts ON ts.user_id = driver.id
         WHERE d.id=$1
     """, deal_id)
 
@@ -5599,14 +5624,16 @@ async def dealpdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     qr_path = f"/tmp/dalnoboy_deal_{deal_id}_qr.png"
     qrcode.make(verify_url).save(qr_path)
 
-    story.append(Paragraph(f"DALNOBOY BROS — ЗАЯВКА НА ПЕРЕВОЗКУ №{deal_id}", title))
+    story.append(Paragraph(f"DALNOBOY BROS — ПАСПОРТ БЕЗОПАСНОЙ СДЕЛКИ №{deal_id}", title))
     story.append(Spacer(1, 10))
 
-    logo_path = "/root/dalnoboy/src/assets/hero.png"
+    logo_path = "/root/dalnoboy/web/assets/logo.png"
+    if not os.path.exists(logo_path):
+        logo_path = "/var/www/dalnoboy/assets/logo.png"
 
     left_block = Table([
         [
-            Image(logo_path, width=120, height=60)
+            Image(logo_path, width=90, height=90)
         ],
         [
             Paragraph(
@@ -5653,6 +5680,46 @@ async def dealpdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ("PADDING", (0,0), (-1,-1), 7),
     ]))
     story.append(main_table)
+    story.append(Spacer(1, 14))
+
+    safe_rows = [
+        ["Безопасная сделка", deal["safe_deal_status"] or "draft"],
+        ["Заказчик", "Подтвержден" if deal["shipper_confirmed"] else "Нет"],
+        ["Перевозчик", "Подтвержден" if deal["carrier_confirmed"] else "Нет"],
+        ["Диспетчер", "Подтвержден" if deal["dispatcher_confirmed"] else "Нет"],
+        ["Оплата", deal["payment_status"] or "pending"],
+        ["Спор", "Да" if deal["dispute"] else "Нет"],
+    ]
+
+    safe_table = Table(safe_rows, colWidths=[150, 360])
+    safe_table.setStyle(TableStyle([
+        ("FONTNAME", (0,0), (-1,-1), "DejaVu"),
+        ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+        ("PADDING", (0,0), (-1,-1), 7),
+    ]))
+
+    story.append(Paragraph("Безопасная сделка", style))
+    story.append(Spacer(1, 8))
+    story.append(safe_table)
+    story.append(Spacer(1, 14))
+
+    finance_rows = [
+        ["Клиент платит", format_price(deal["client_price"])],
+        ["Перевозчику", format_price(deal["carrier_price"])],
+        ["Доход диспетчера", format_price(deal["dispatcher_profit"])],
+    ]
+
+    finance_table = Table(finance_rows, colWidths=[150, 360])
+    finance_table.setStyle(TableStyle([
+        ("FONTNAME", (0,0), (-1,-1), "DejaVu"),
+        ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+        ("PADDING", (0,0), (-1,-1), 7),
+    ]))
+
+    story.append(Paragraph("Финансы сделки", style))
+    story.append(Spacer(1, 8))
+    story.append(finance_table)
     story.append(Spacer(1, 16))
 
     truck_rows = [
@@ -5660,6 +5727,7 @@ async def dealpdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ["Грузоподъёмность", f"{deal['capacity_tons'] or '-'} т / {deal['volume_m3'] or '-'} м³"],
         ["Заказчик", deal["owner_name"] or "-"],
         ["Водитель", deal["driver_name"] or "-"],
+        ["Индекс доверия водителя", f"{deal['driver_trust_score'] or 50}/100"],
     ]
 
     truck_table = Table(truck_rows, colWidths=[150, 360])
@@ -5671,7 +5739,15 @@ async def dealpdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
     story.append(Paragraph("Участники и транспорт", style))
     story.append(Spacer(1, 8))
     story.append(truck_table)
-    story.append(Spacer(1, 16))
+    story.append(Spacer(1, 12))
+
+    if deal["photo_url"]:
+        local_photo = "/var/www/dalnoboy" + deal["photo_url"]
+        if os.path.exists(local_photo):
+            story.append(Paragraph("Фото транспорта", style))
+            story.append(Spacer(1, 8))
+            story.append(Image(local_photo, width=300, height=180))
+            story.append(Spacer(1, 16))
 
     history = await DB.fetch("""
         SELECT status, created_at
@@ -5699,15 +5775,18 @@ async def dealpdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
         story.append(Paragraph("Событий пока нет", style))
 
     docs_count = await DB.fetchval("SELECT COUNT(*) FROM deal_documents WHERE deal_id=$1", deal_id)
+    disputes_count = await DB.fetchval("SELECT COUNT(*) FROM disputes WHERE deal_id=$1", deal_id)
+
     story.append(Spacer(1, 16))
     story.append(Paragraph(f"Документы в сделке: {docs_count}", style))
+    story.append(Paragraph(f"Споров по сделке: {disputes_count}", style))
 
     story.append(Spacer(1, 28))
     sign_table = Table([
-        ["Заказчик", "Перевозчик"],
-        ["____________________", "____________________"],
-        ["подпись", "подпись"],
-    ], colWidths=[250, 250])
+        ["Заказчик", "Перевозчик", "Диспетчер"],
+        ["____________________", "____________________", "____________________"],
+        ["подпись", "подпись", "подпись"],
+    ], colWidths=[165, 165, 165])
     sign_table.setStyle(TableStyle([
         ("FONTNAME", (0,0), (-1,-1), "DejaVu"),
         ("ALIGN", (0,0), (-1,-1), "CENTER"),
@@ -5719,8 +5798,8 @@ async def dealpdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     sent = await update.message.reply_document(
         document=open(path, "rb"),
-        filename=f"deal_{deal_id}_request.pdf",
-        caption=f"📄 PDF-заявка по сделке #{deal_id}"
+        filename=f"deal_{deal_id}_safe_passport.pdf",
+        caption=f"📄 Паспорт безопасной сделки #{deal_id}"
     )
 
     try:
@@ -5731,7 +5810,7 @@ async def dealpdf(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 doc_type,
                 telegram_file_id
             )
-            VALUES ($1,'deal_request_pdf',$2)
+            VALUES ($1,'deal_safe_passport_pdf',$2)
         """, deal_id, file_id)
     except Exception as e:
         logging.warning(f"save generated pdf failed: {e}")
