@@ -1069,17 +1069,48 @@ async def truck_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     file_id = update.message.photo[-1].file_id
 
+    truck = await DB.fetchrow("""
+        SELECT id
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id DESC
+        LIMIT 1
+    """, user_id)
+
+    if not truck:
+        await update.message.reply_text("❌ Машина не найдена")
+        return
+
+    truck_id = truck["id"]
+
+    photo_url = None
+
+    try:
+        import os
+        os.makedirs("/root/dalnoboy/web/uploads/trucks", exist_ok=True)
+        os.makedirs("/var/www/dalnoboy/uploads/trucks", exist_ok=True)
+
+        tg_file = await context.bot.get_file(file_id)
+
+        local_path = f"/root/dalnoboy/web/uploads/trucks/truck_{truck_id}.jpg"
+        public_path = f"/var/www/dalnoboy/uploads/trucks/truck_{truck_id}.jpg"
+
+        await tg_file.download_to_drive(local_path)
+
+        import shutil
+        shutil.copyfile(local_path, public_path)
+
+        photo_url = f"/uploads/trucks/truck_{truck_id}.jpg"
+
+    except Exception as e:
+        logging.warning(f"Truck photo web save failed: {e}")
+
     await DB.execute("""
         UPDATE trucks
-        SET photo_file_id=$1
-        WHERE id=(
-            SELECT id
-            FROM trucks
-            WHERE driver_id=$2
-            ORDER BY id DESC
-            LIMIT 1
-        )
-    """, file_id, user_id)
+        SET photo_file_id=$1,
+            photo_url=COALESCE($3, photo_url)
+        WHERE id=$2
+    """, file_id, truck_id, photo_url)
 
     await update.message.reply_text("✅ Фото машины сохранено")
     await mytruck(update, context)

@@ -1263,6 +1263,10 @@ app.get("/api/deals", async (req, res) => {
         d.updated_at,
         d.cargo_id,
         d.truck_id,
+        d.client_price,
+        d.carrier_price,
+        d.dispatcher_profit,
+        t.photo_url as truck_photo_url,
 
         c.from_city,
         c.to_city,
@@ -1319,7 +1323,8 @@ app.get("/api/deal/:id", async (req, res) => {
         c.price_amount,
         c.price_currency,
         u.full_name as driver_name,
-        ts.score as driver_trust_score
+        ts.score as driver_trust_score,
+        t.photo_url as truck_photo_url
       FROM deals d
       LEFT JOIN cargo c ON c.id=d.cargo_id
       LEFT JOIN trucks t ON t.id=d.truck_id
@@ -1480,6 +1485,129 @@ app.get("/api/disputes", async (req, res) => {
   } catch(e) {
     console.error(e);
     res.status(500).json({ success:false, error:e.message });
+  }
+});
+
+
+
+app.get("/api/deal/:id/audit", async (req, res) => {
+  try {
+    const dealId = Number(req.params.id);
+
+    const rows = await pool.query(`
+      SELECT
+        a.id,
+        a.deal_id,
+        a.user_id,
+        a.action,
+        a.old_value,
+        a.new_value,
+        a.meta,
+        a.created_at,
+        u.full_name
+      FROM deal_audit_log a
+      LEFT JOIN users u
+        ON u.id = a.user_id
+      WHERE a.deal_id=$1
+      ORDER BY a.created_at DESC
+      LIMIT 100
+    `, [dealId]);
+
+    res.json({
+      success: true,
+      count: rows.rows.length,
+      items: rows.rows
+    });
+
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      error: e.message
+    });
+  }
+});
+
+
+
+app.get("/api/deal/:id/documents", async (req, res) => {
+  try {
+    const dealId = Number(req.params.id);
+
+    const rows = await pool.query(`
+      SELECT
+        d.id,
+        d.deal_id,
+        d.uploaded_by,
+        d.doc_type,
+        d.file_name,
+        d.caption,
+        d.created_at,
+        u.full_name AS uploaded_by_name
+      FROM deal_documents d
+      LEFT JOIN users u
+        ON u.id = d.uploaded_by
+      WHERE d.deal_id=$1
+      ORDER BY d.id DESC
+    `, [dealId]);
+
+    res.json({
+      success: true,
+      count: rows.rows.length,
+      items: rows.rows
+    });
+
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({
+      success: false,
+      error: e.message
+    });
+  }
+});
+
+
+
+app.get("/api/dispatcher/clients", async (req, res) => {
+  try {
+
+    const rows = await pool.query(`
+      SELECT
+        dc.id,
+        dc.dispatcher_user_id,
+        dc.client_user_id,
+        dc.client_type,
+        dc.commission_percent,
+        dc.status,
+
+        u.full_name,
+        u.role,
+        u.verified,
+        ts.score AS trust_score
+
+      FROM dispatcher_clients dc
+
+      LEFT JOIN users u
+        ON u.id = dc.client_user_id
+
+      LEFT JOIN trust_scores ts
+        ON ts.user_id = u.id
+
+      ORDER BY dc.id DESC
+    `);
+
+    res.json({
+      success:true,
+      count:rows.rows.length,
+      items:rows.rows
+    });
+
+  } catch(e) {
+    console.error(e);
+    res.status(500).json({
+      success:false,
+      error:e.message
+    });
   }
 });
 
