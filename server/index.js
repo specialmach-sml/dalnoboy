@@ -1263,6 +1263,8 @@ app.get("/api/deals", async (req, res) => {
         d.updated_at,
         d.cargo_id,
         d.truck_id,
+        t.driver_id as truck_driver_id,
+        u.id as driver_id,
         d.client_price,
         d.carrier_price,
         d.dispatcher_profit,

@@ -206,6 +206,37 @@ tr:hover td{
 #dealModal img,#clientModal img{
   box-shadow:0 18px 60px rgba(0,0,0,.35);
 }
+
+.tabs{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  margin:0 0 22px 0;
+}
+
+.tab-btn{
+  border:1px solid rgba(148,163,184,.22);
+  background:rgba(15,23,42,.72);
+  color:#e5e7eb;
+  padding:10px 14px;
+  border-radius:14px;
+  cursor:pointer;
+  font-weight:800;
+}
+
+.tab-btn.active{
+  background:linear-gradient(135deg,var(--primary),var(--secondary));
+  color:#fff;
+  box-shadow:0 12px 30px rgba(99,102,241,.25);
+}
+
+.tab-section{
+  display:none;
+}
+
+.tab-section.active{
+  display:block;
+}
 </style>
 </head>
 <body>
@@ -251,11 +282,17 @@ async function load() {
   const disputes = await disputesRes.json();
   const clients = await clientsRes.json();
 
-  const cargoItems = cargo.items || [];
-  const truckItems = trucks.items || [];
-  const dealItems = deals.items || [];
-  const disputeItems = disputes.items || [];
-  const clientItems = clients.items || [];
+  window.cargoItems = cargo.items || [];
+  window.truckItems = trucks.items || [];
+  window.dealItems = deals.items || [];
+  window.disputeItems = disputes.items || [];
+  window.clientItems = clients.items || [];
+
+  const cargoItems = window.cargoItems;
+  const truckItems = window.truckItems;
+  const dealItems = window.dealItems;
+  const disputeItems = window.disputeItems;
+  const clientItems = window.clientItems;
 
   const profitTotal = dealItems.reduce((sum,d) => sum + Number(d.dispatcher_profit || 0), 0);
   const today = new Date().toISOString().slice(0,10);
@@ -264,6 +301,17 @@ async function load() {
     .reduce((sum,d) => sum + Number(d.dispatcher_profit || 0), 0);
 
   document.getElementById("app").innerHTML = `
+    <div class="tabs">
+      <button class="tab-btn active" onclick="showTab('overview', this)">📊 Обзор</button>
+      <button class="tab-btn" onclick="showTab('cargo', this)">📦 Грузы</button>
+      <button class="tab-btn" onclick="showTab('trucks', this)">🚚 Машины</button>
+      <button class="tab-btn" onclick="showTab('deals', this)">🤝 Сделки</button>
+      <button class="tab-btn" onclick="showTab('clients', this)">👥 Клиенты</button>
+      <button class="tab-btn" onclick="showTab('disputes', this)">⚖️ Споры</button>
+      <a class="tab-btn" href="/?dev=${devId}">🗺 Карта</a>
+    </div>
+
+    <section id="tab-overview" class="tab-section active">
     <div class="cards">
       <div class="card">📦 Открытые грузы<div class="num">${cargoItems.length}</div></div>
       <div class="card">🚚 Активные машины<div class="num">${truckItems.length}</div></div>
@@ -273,7 +321,9 @@ async function load() {
       <div class="card">⚠️ Споры<div class="num">${disputeItems.length}</div></div>
       <div class="card">👥 Клиенты<div class="num">${clientItems.length}</div></div>
     </div>
+    </section>
 
+    <section id="tab-cargo" class="tab-section">
     <h2>📦 Грузы</h2>
     <table>
       <thead>
@@ -293,7 +343,9 @@ async function load() {
         `).join("") || `<tr><td colspan="5" class="muted">Грузов пока нет</td></tr>`}
       </tbody>
     </table>
+    </section>
 
+    <section id="tab-trucks" class="tab-section">
     <h2>🚚 Машины</h2>
     <table>
       <thead>
@@ -312,7 +364,9 @@ async function load() {
         `).join("") || `<tr><td colspan="4" class="muted">Активных машин пока нет</td></tr>`}
       </tbody>
     </table>
+    </section>
 
+    <section id="tab-deals" class="tab-section">
     <h2>🤝 Сделки</h2>
     <table>
       <thead>
@@ -330,7 +384,9 @@ async function load() {
         `).join("") || `<tr><td colspan="4" class="muted">Сделок пока нет</td></tr>`}
       </tbody>
     </table>
+    </section>
 
+    <section id="tab-clients" class="tab-section">
     <h2>👥 Клиенты</h2>
     <table>
       <thead>
@@ -350,7 +406,9 @@ async function load() {
         `).join("") || `<tr><td colspan="6" class="muted">Клиентов пока нет</td></tr>`}
       </tbody>
     </table>
+    </section>
 
+    <section id="tab-disputes" class="tab-section">
     <h2>⚖️ Споры</h2>
     <table>
       <thead>
@@ -368,11 +426,9 @@ async function load() {
         `).join("") || `<tr><td colspan="5" class="muted">Споров пока нет</td></tr>`}
       </tbody>
     </table>
-
-    <p style="margin-top:24px;">
-      <a class="btn" href="/?dev=${devId}">🗺 Открыть карту</a>
-    </p>
+    </section>
   `;
+  restoreTab();
 }
 
 load().catch(e => {
@@ -380,6 +436,24 @@ load().catch(e => {
     "<div class='bad'><h2>Ошибка загрузки</h2><p>" + e.message + "</p></div>";
 });
 
+
+function showTab(name, btn){
+  document.querySelectorAll(".tab-section").forEach(x => x.classList.remove("active"));
+  document.querySelectorAll(".tab-btn").forEach(x => x.classList.remove("active"));
+
+  const section = document.getElementById("tab-" + name);
+  if(section) section.classList.add("active");
+
+  if(btn) btn.classList.add("active");
+
+  localStorage.setItem("dispatcher_tab", name);
+}
+
+function restoreTab(){
+  const saved = localStorage.getItem("dispatcher_tab") || "overview";
+  const btn = Array.from(document.querySelectorAll(".tab-btn")).find(b => b.getAttribute("onclick") && b.getAttribute("onclick").includes("'" + saved + "'"));
+  showTab(saved, btn);
+}
 
 function trustLabel(score){
   score = Number(score || 50);
@@ -389,13 +463,28 @@ function trustLabel(score){
 }
 
 function openClient(id){
-  const c = clientItems.find(x => Number(x.id) === Number(id));
+  const c = (window.clientItems || []).find(x => Number(x.id) === Number(id));
   if(!c){
     alert("Клиент не найден");
     return;
   }
 
   const [label, cls] = trustLabel(c.trust_score);
+
+  const clientDeals = (window.dealItems || []).filter(d =>
+    Number(d.driver_user_id || d.driver_id || 0) === Number(c.client_user_id)
+    || Number(d.truck_driver_id || 0) === Number(c.client_user_id)
+  );
+
+  const clientDisputes = (window.disputeItems || []).filter(x =>
+    clientDeals.some(d => Number(d.id) === Number(x.deal_id))
+  );
+
+  const clientProfit = clientDeals.reduce((sum,d)=>sum + Number(d.dispatcher_profit || 0), 0);
+
+  const clientTrucks = (window.truckItems || []).filter(t =>
+    Number(t.driver_id || 0) === Number(c.client_user_id)
+  );
 
   let box=document.getElementById("clientModal");
   if(box) box.remove();
@@ -406,53 +495,93 @@ function openClient(id){
     position:fixed;
     right:0;
     top:0;
-    width:480px;
+    width:520px;
     height:100%;
-    background:white;
     z-index:99999;
     overflow:auto;
-    box-shadow:-10px 0 30px rgba(0,0,0,.2);
     padding:24px;
   `;
 
   box.innerHTML=`
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h2>👥 Клиент #${c.id}</h2>
-      <button onclick="clientModal.remove()">✖</button>
+      <button class="btn" onclick="clientModal.remove()">✖</button>
     </div>
 
-    <div style="display:flex;align-items:center;gap:12px;margin:18px 0">
-      <img src="/assets/logo.png" style="width:64px;height:64px;border-radius:16px;object-fit:cover">
+    <div style="
+      display:flex;
+      align-items:center;
+      gap:14px;
+      margin:18px 0;
+      padding:16px;
+      border-radius:22px;
+      background:linear-gradient(135deg,rgba(99,102,241,.18),rgba(56,189,248,.10));
+      border:1px solid rgba(148,163,184,.22);
+    ">
+      <img src="/assets/logo.png" style="width:72px;height:72px;border-radius:20px;object-fit:cover">
       <div>
-        <b style="font-size:20px">${c.full_name || "Клиент #" + c.client_user_id}</b><br>
-        <span class="muted">Dalnoboy Bros · CRM диспетчера</span>
+        <b style="font-size:22px">${c.full_name || "Клиент #" + c.client_user_id}</b><br>
+        <span class="muted">Dalnoboy Bros · CRM диспетчера</span><br>
+        <span class="status-pill ${cls}" style="margin-top:8px">${label}</span>
       </div>
     </div>
 
-    <p><b>Тип клиента</b><br>${c.client_type || c.role || "-"}</p>
+    <div style="
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:12px;
+      margin:14px 0;
+    ">
+      <div class="card"><span class="muted">🤝 Сделки</span><div class="num">${clientDeals.length}</div></div>
+      <div class="card"><span class="muted">⚖️ Споры</span><div class="num">${clientDisputes.length}</div></div>
+      <div class="card"><span class="muted">💰 Доход</span><div class="num">${money(clientProfit)}</div></div>
+      <div class="card"><span class="muted">🚚 Машины</span><div class="num">${clientTrucks.length}</div></div>
+    </div>
 
-    <p><b>Статус</b><br>${c.status || "-"}</p>
-
-    <p><b>Комиссия диспетчера</b><br>${c.commission_percent || 0}%</p>
-
-    <div style="background:#f3f4f6;padding:14px;border-radius:12px;margin:14px 0">
+    <div style="background:rgba(15,23,42,.45);padding:16px;border-radius:18px;margin:14px 0;border:1px solid rgba(148,163,184,.18)">
       <h3 style="margin-top:0">⭐ Индекс доверия</h3>
-      <p><span class="status-pill ${cls}">${label}</span></p>
-      <p style="font-size:28px;font-weight:800;margin:8px 0">${c.trust_score || 50}/100</p>
-      <p class="muted">Контакты и документы скрыты. Пользователи видят только статус проверки и рейтинг.</p>
+      <p style="font-size:34px;font-weight:900;margin:8px 0">${c.trust_score || 50}/100</p>
+      <p><b>Тип:</b> ${c.client_type || c.role || "-"}</p>
+      <p><b>Статус:</b> ${c.status || "-"}</p>
+      <p><b>Комиссия диспетчера:</b> ${c.commission_percent || 0}%</p>
+      <p class="muted">Персональные данные и документы не раскрываются. Показываем только статус проверки, рейтинг и историю работы.</p>
     </div>
 
-    <div style="background:#ecfdf5;padding:14px;border-radius:12px;margin:14px 0">
-      <h3 style="margin-top:0">🛡 Защита данных</h3>
-      <p>✅ Персональные данные не раскрываются</p>
-      <p>✅ Документы доступны только администратору</p>
+    <div style="background:rgba(34,197,94,.10);padding:16px;border-radius:18px;margin:14px 0;border:1px solid rgba(34,197,94,.25)">
+      <h3 style="margin-top:0">🛡 Защита платформы</h3>
       <p>✅ Контакты открываются только по правилам безопасной сделки</p>
+      <p>✅ Все действия пишутся в журнал</p>
+      <p>✅ Споры влияют на индекс доверия</p>
     </div>
 
-    <hr>
+    <h3>🚚 Машины клиента</h3>
+    ${
+      clientTrucks.length
+      ?
+      clientTrucks.map(t=>`
+        <div style="padding:12px;border-bottom:1px solid rgba(148,163,184,.18)">
+          <b>Машина #${t.id}</b><br>
+          ${t.body_type || "-"} · ${t.capacity_tons || "-"} т · ${t.volume_m3 || "-"} м³
+        </div>
+      `).join("")
+      :
+      "<p class='muted'>Машин пока нет или они не привязаны.</p>"
+    }
 
-    <h3>📋 Что дальше</h3>
-    <p>Здесь позже появятся сделки клиента, споры, документы и доход диспетчера по этому клиенту.</p>
+    <h3>🤝 Сделки клиента</h3>
+    ${
+      clientDeals.length
+      ?
+      clientDeals.map(d=>`
+        <div style="padding:12px;border-bottom:1px solid rgba(148,163,184,.18)">
+          <b>Сделка #${d.id}</b><br>
+          ${(d.from_city||"-").split(",")[0]} → ${(d.to_city||"-").split(",")[0]}<br>
+          <span class="muted">Статус: ${d.status || "-"} · Доход: ${money(d.dispatcher_profit)}</span>
+        </div>
+      `).join("")
+      :
+      "<p class='muted'>Сделок пока нет.</p>"
+    }
   `;
 
   document.body.append(box);
