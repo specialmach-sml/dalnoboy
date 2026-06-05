@@ -264,10 +264,19 @@ async def ban_guard(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     row = await DB.fetchrow("""
-        SELECT id, banned
+        SELECT id, role, banned
         FROM users
         WHERE telegram_id=$1
     """, tg_user.id)
+
+    # Защита: админ не может быть заблокирован в боте
+    if row and row["role"] == "admin" and row["banned"]:
+        await DB.execute("""
+            UPDATE users
+            SET banned=false
+            WHERE telegram_id=$1
+        """, tg_user.id)
+        return
 
     if row and row["banned"]:
         if update.message:
