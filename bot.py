@@ -162,7 +162,7 @@ def main_reply_keyboard(role="carrier", verified=True, roles=None):
 
         rows += [
             ["👤 Профиль", "⚙️ Настройки"],
-            ["➕ Запросить роль"]
+            ["💳 Тарифы", "➕ Запросить роль"]
         ]
 
     # убрать дубли строк
@@ -646,19 +646,77 @@ async def truck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+
+async def apply_radius_limit(user_id: int, radius: int):
+    user = await DB.fetchrow("""
+        SELECT
+            COALESCE(role, 'carrier') AS role,
+            COALESCE(plan_type, 'free') AS plan_type
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    role = user["role"] if user else "carrier"
+    plan_type = user["plan_type"] if user else "free"
+
+    if role in ("admin", "dispatcher") or plan_type == "company":
+        return radius, None
+
+    if plan_type == "pro":
+        max_radius = 500
+    else:
+        max_radius = 150
+
+    if radius > max_radius:
+        return max_radius, max_radius
+
+    return radius, None
+
+
 async def truck_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
-    existing = await DB.fetchrow("""
-        SELECT id
-        FROM trucks
-        WHERE driver_id=$1
-        ORDER BY id DESC
-        LIMIT 1
+    user = await DB.fetchrow("""
+        SELECT
+            COALESCE(role, 'carrier') AS role,
+            COALESCE(plan_type, 'free') AS plan_type
+        FROM users
+        WHERE id=$1
     """, user_id)
 
-    if existing:
-        return await mytruck(update, context)
+    role = user["role"]
+    plan_type = user["plan_type"]
+
+    truck_count = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM trucks
+        WHERE driver_id=$1
+          AND COALESCE(status, 'active') <> 'deleted'
+    """, user_id)
+
+    # Коммерческая модель v1:
+    # перевозчик FREE = 1 машина
+    # перевозчик PRO = до 3 машин
+    # admin/dispatcher/company пока без ограничений
+    if role in ("admin", "dispatcher") or plan_type == "company":
+        limit = 999999
+    elif plan_type == "pro":
+        limit = 3
+    else:
+        limit = 1
+
+    if truck_count >= limit:
+        if limit == 1:
+            await update.message.reply_text(
+                "🚫 На тарифе FREE доступна только 1 машина.\n\n"
+                "Чтобы добавить больше машин, подключите PRO."
+            )
+        else:
+            await update.message.reply_text(
+                f"🚫 Лимит машин для тарифа {plan_type.upper()}: {limit}.\n\n"
+                "Чтобы увеличить лимит, обратитесь к администратору."
+            )
+        return ConversationHandler.END
 
     context.user_data["truck"] = {}
 
@@ -1195,6 +1253,8 @@ async def truck_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
         user_id = await ensure_user(update.effective_user)
 
+        radius, clipped_to = await apply_radius_limit(user_id, radius)
+
         await DB.execute("""
             UPDATE trucks
             SET search_radius_km=$1
@@ -1207,7 +1267,14 @@ async def truck_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE)
             )
         """, radius, user_id)
 
-        await update.message.reply_text(f"✅ Радиус поиска сохранён: {radius} км")
+        if clipped_to:
+            await update.message.reply_text(
+                f"ℹ️ Для вашего тарифа максимальный радиус поиска: {clipped_to} км.\n"
+                f"Сохранил радиус: {radius} км."
+            )
+        else:
+            await update.message.reply_text(f"✅ Радиус поиска сохранён: {radius} км")
+
         await mytruck(update, context)
         return
 
@@ -1377,37 +1444,116 @@ async def truck_hide(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔥 Подключить PRO", callback_data="buy_plan")],
-        [InlineKeyboardButton("📡 DISPATCHER / ⭐ COMPANY", callback_data="buy_plan")],
+        [InlineKeyboardButton("🚚 Подключить PRO перевозчика", callback_data="plan_request_pro")],
+        [InlineKeyboardButton("📦 Подключить BUSINESS грузоотправителя", callback_data="plan_request_business")],
         [InlineKeyboardButton("👤 Мой профиль", callback_data="menu_profile")]
     ])
 
-    await update.message.reply_text(
-        "💼 Тарифы Dalnoboy\n\n"
+    text = (
+        "💳 Тарифы Dalnoboy Bros\n\n"
+
         "🆓 FREE\n"
         "• 1 активный груз\n"
         "• 1 машина\n"
-        "• поиск рядом до 150 км\n"
-        "• обычный показ\n\n"
-        "🔥 PRO\n"
-        "• до 5 активных грузов\n"
+        "• радиус поиска до 150 км\n"
+        "• обычная выдача\n\n"
+
+        "🚚 PRO для перевозчика\n"
+        "490 ₽ / месяц\n"
         "• до 3 машин\n"
-        "• поиск рядом до 500 км\n"
-        "• раздел «Выгодные грузы»\n"
-        "• приоритет выше FREE\n\n"
-        "📡 DISPATCHER\n"
+        "• радиус поиска до 500 км\n"
+        "• раздел «🟢 Выгодные грузы»\n"
+        "• уведомления и приоритет\n\n"
+
+        "📦 BUSINESS для грузоотправителя\n"
+        "990 ₽ / месяц\n"
         "• до 20 активных грузов\n"
-        "• до 10 машин\n"
-        "• работа с несколькими водителями\n"
-        "• расширенный поиск\n\n"
-        "⭐ COMPANY\n"
-        "• без лимита грузов\n"
-        "• без лимита радиуса\n"
-        "• максимальный приоритет\n"
-        "• для автопарков и компаний\n\n"
-        "Выберите подключение ниже.",
-        reply_markup=kb
+        "• VIP и поднятие грузов\n"
+        "• приоритет в выдаче\n\n"
+
+        "👨‍💼 Диспетчер\n"
+        "• бесплатно на этапе роста платформы\n\n"
+
+        "Оплата пока вручную через администратора.\n"
+        "Нажмите кнопку ниже — админ получит заявку."
     )
+
+    if update.message:
+        await update.message.reply_text(text, reply_markup=kb)
+    elif update.callback_query:
+        await update.callback_query.message.reply_text(text, reply_markup=kb)
+
+
+async def plan_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    tg_user = q.from_user
+    user_id = await ensure_user(tg_user)
+
+    plan = q.data.replace("plan_request_", "")
+
+    if plan == "pro":
+        plan_title = "🚚 PRO перевозчика"
+        price = "490 ₽ / месяц"
+    elif plan == "business":
+        plan_title = "📦 BUSINESS грузоотправителя"
+        price = "990 ₽ / месяц"
+    else:
+        plan_title = plan.upper()
+        price = "-"
+
+    user = await DB.fetchrow("""
+        SELECT
+            id,
+            telegram_id,
+            full_name,
+            telegram_username,
+            role,
+            plan_type
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    username = user["telegram_username"] if user and user["telegram_username"] else None
+    username_text = f"@{username}" if username else "-"
+
+    await q.message.reply_text(
+        "✅ Заявка отправлена администратору.\n\n"
+        f"Тариф: {plan_title}\n"
+        f"Стоимость: {price}\n\n"
+        "Администратор свяжется с вами для подключения."
+    )
+
+    admins = await DB.fetch("""
+        SELECT telegram_id
+        FROM users
+        WHERE role='admin'
+          AND COALESCE(banned,false)=false
+    """)
+
+    admin_text = (
+        "💳 Новая заявка на тариф\n\n"
+        f"Тариф: {plan_title}\n"
+        f"Цена: {price}\n\n"
+        f"Пользователь: {user['full_name'] if user and user['full_name'] else tg_user.full_name}\n"
+        f"Telegram: {username_text}\n"
+        f"Telegram ID: {tg_user.id}\n"
+        f"User ID в базе: {user_id}\n"
+        f"Текущая роль: {user['role'] if user else '-'}\n"
+        f"Текущий тариф: {user['plan_type'] if user else '-'}\n\n"
+        f"Для подключения:\n"
+        f"/setplan {user_id} {plan} 30"
+    )
+
+    for admin in admins:
+        try:
+            await context.bot.send_message(
+                chat_id=admin["telegram_id"],
+                text=admin_text
+            )
+        except Exception as e:
+            logging.warning(f"plan_request notify admin failed: {e}")
 
 
 async def matching(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6207,11 +6353,14 @@ async def newcargo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(tg_user)
 
     user = await DB.fetchrow("""
-        SELECT COALESCE(plan_type, 'free') AS plan_type
+        SELECT
+            COALESCE(role, 'carrier') AS role,
+            COALESCE(plan_type, 'free') AS plan_type
         FROM users
         WHERE id=$1
     """, user_id)
 
+    role = user["role"]
     plan_type = user["plan_type"]
 
     active_cargo = await DB.fetchval("""
@@ -6221,19 +6370,28 @@ async def newcargo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
           AND status='open'
     """, user_id)
 
-    limits = {
-        "free": 1,
-        "pro": 5,
-        "dispatcher": 20,
-        "company": 999999
-    }
-
-    limit = limits.get(plan_type, 1)
+    # Коммерческая модель v1:
+    # грузоотправитель FREE = 1 активный груз
+    # грузоотправитель BUSINESS = до 20 активных грузов
+    # dispatcher/admin/company пока без ограничений
+    if role in ("admin", "dispatcher") or plan_type == "company":
+        limit = 999999
+    elif plan_type == "business":
+        limit = 20
+    else:
+        limit = 1
 
     if active_cargo >= limit:
-        await update.message.reply_text(
-            f"⛔ Лимит активных грузов для тарифа {plan_type.upper()}: {limit}"
-        )
+        if limit == 1:
+            await update.message.reply_text(
+                "🚫 На тарифе FREE доступен только 1 активный груз.\n\n"
+                "Чтобы размещать больше грузов, подключите BUSINESS."
+            )
+        else:
+            await update.message.reply_text(
+                f"🚫 Лимит активных грузов для тарифа {plan_type.upper()}: {limit}.\n\n"
+                "Чтобы увеличить лимит, обратитесь к администратору."
+            )
         return ConversationHandler.END
 
     context.user_data["newcargo"] = {}
@@ -6807,11 +6965,30 @@ async def check_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def nearby_profit(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
+    user = await DB.fetchrow("""
+        SELECT
+            COALESCE(role,'carrier') AS role,
+            COALESCE(plan_type,'free') AS plan_type
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    role = user["role"] if user else "carrier"
+    plan_type = user["plan_type"] if user else "free"
+
+    # Выгодные грузы только для PRO
+    if role not in ("admin", "dispatcher") and plan_type not in ("pro", "company"):
+        await update.message.reply_text(
+            "🟢 Раздел «Выгодные грузы» доступен только на тарифе PRO.\n\n"
+            "Подключите PRO для поиска самых прибыльных рейсов."
+        )
+        return
+
     radius = None
     if context.args:
         try:
             radius = int(context.args[0])
-        except:
+        except Exception:
             pass
 
     truck = await DB.fetchrow("""
@@ -7171,6 +7348,8 @@ async def rate_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         user_id = await ensure_user(update.effective_user)
 
+        radius, clipped_to = await apply_radius_limit(user_id, radius)
+
         row = await DB.fetchrow("""
             UPDATE trucks
             SET search_radius_km=$1
@@ -7182,7 +7361,14 @@ async def rate_text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("🚚 Сначала добавьте машину через кнопку 🚚 Машина")
             return
 
-        await update.message.reply_text(f"✅ Радиус поиска сохранён: {radius} км")
+        if clipped_to:
+            await update.message.reply_text(
+                f"ℹ️ Для вашего тарифа максимальный радиус поиска: {clipped_to} км.\n"
+                f"Сохранил радиус: {radius} км."
+            )
+        else:
+            await update.message.reply_text(f"✅ Радиус поиска сохранён: {radius} км")
+
         return
 
     if not context.user_data.get("awaiting_rate"):
@@ -8913,6 +9099,7 @@ def main():
     app.add_handler(CallbackQueryHandler(rate_action, pattern="^rate_"))
 
     app.add_handler(CommandHandler("menu", menu))
+    app.add_handler(CallbackQueryHandler(plan_request, pattern="^plan_request_"))
     app.add_handler(CallbackQueryHandler(menu_button, pattern="^(menu_|buy_plan)"))
     app.add_handler(CommandHandler("dashboard", dashboard))
     app.add_handler(CommandHandler("monetization", monetization))
