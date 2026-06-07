@@ -131,41 +131,53 @@ def main_reply_keyboard(role="carrier", verified=True, roles=None):
 
     rows = []
 
-    if "admin" in roles:
+    # Админ видит всё
+    if role == "admin" or "admin" in roles:
         rows += [
             ["🗺 Карта"],
             ["📦 Грузы", "📋 Мои грузы"],
             ["🚚 Машина", "📨 Отклики"],
-            ["👤 Профиль", "⚙️ Настройки"],
-            ["🛡 Админ"]
+            ["🤝 Сделки", "🛡 Админ"],
+            ["💳 Тарифы", "⚙️ Настройки"],
+            ["👤 Профиль"]
         ]
+
+    # Перевозчик видит только перевозчика
+    elif role == "carrier" or role == "driver":
+        rows += [
+            ["🗺 Карта"],
+            ["📦 Грузы", "🚚 Машина"],
+            ["📍 Рядом", "🟢 Выгодные"],
+            ["📨 Отклики"],
+            ["👤 Профиль", "⚙️ Настройки"],
+            ["💳 Тарифы", "➕ Запросить роль"]
+        ]
+
+    # Грузоотправитель видит только грузоотправителя
+    elif role == "shipper":
+        rows += [
+            ["➕ Груз", "📋 Мои грузы"],
+            ["📨 Отклики", "🤝 Сделки"],
+            ["👤 Профиль", "⚙️ Настройки"],
+            ["💳 Тарифы", "➕ Запросить роль"]
+        ]
+
+    # Диспетчер видит диспетчерский набор
+    elif role == "dispatcher":
+        rows += [
+            ["➕ Груз", "📋 Мои грузы"],
+            ["🚚 Машины", "📨 Отклики"],
+            ["🤝 Сделки"],
+            ["👤 Профиль", "⚙️ Настройки"],
+            ["💳 Тарифы", "➕ Запросить роль"]
+        ]
+
     else:
-        if "carrier" in roles:
-            rows += [
-                ["🗺 Карта"],
-                ["📦 Грузы", "🚚 Машина"],
-                ["📍 Рядом", "🟢 Выгодные"]
-            ]
-
-        if "shipper" in roles:
-            rows += [
-                ["➕ Груз", "📋 Мои грузы"],
-                ["📨 Отклики", "🤝 Сделки"]
-            ]
-
-        if "dispatcher" in roles:
-            rows += [
-                ["➕ Груз", "📋 Мои грузы"],
-                ["🚚 Машины", "📨 Отклики"],
-                ["🤝 Сделки"]
-            ]
-
         rows += [
             ["👤 Профиль", "⚙️ Настройки"],
             ["💳 Тарифы", "➕ Запросить роль"]
         ]
 
-    # убрать дубли строк
     clean = []
     seen = set()
     for row in rows:
@@ -708,8 +720,17 @@ async def truck_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if truck_count >= limit:
         if limit == 1:
             await update.message.reply_text(
-                "🚫 На тарифе FREE доступна только 1 машина.\n\n"
-                "Чтобы добавить больше машин, подключите PRO."
+                "🚫 Лимит FREE достигнут\n\n"
+                "На тарифе FREE доступна только 1 машина.\n\n"
+                "🚚 PRO — 490 ₽/месяц\n"
+                "✓ до 3 машин\n"
+                "✓ радиус поиска до 500 км\n"
+                "✓ раздел «🟢 Выгодные грузы»\n"
+                "✓ приоритет в выдаче\n\n"
+                "Нажмите кнопку ниже, чтобы отправить заявку.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("🚚 Подключить PRO", callback_data="plan_request_pro")]
+                ])
             )
         else:
             await update.message.reply_text(
@@ -1445,7 +1466,7 @@ async def truck_hide(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kb = InlineKeyboardMarkup([
         [InlineKeyboardButton("🚚 Подключить PRO перевозчика", callback_data="plan_request_pro")],
-        [InlineKeyboardButton("📦 Подключить BUSINESS грузоотправителя", callback_data="plan_request_business")],
+        [InlineKeyboardButton("📦 Подключить COMPANY грузоотправителя", callback_data="plan_request_company")],
         [InlineKeyboardButton("👤 Мой профиль", callback_data="menu_profile")]
     ])
 
@@ -1465,7 +1486,7 @@ async def plans(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "• раздел «🟢 Выгодные грузы»\n"
         "• уведомления и приоритет\n\n"
 
-        "📦 BUSINESS для грузоотправителя\n"
+        "📦 COMPANY для грузоотправителя\n"
         "990 ₽ / месяц\n"
         "• до 20 активных грузов\n"
         "• VIP и поднятие грузов\n"
@@ -1496,8 +1517,8 @@ async def plan_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if plan == "pro":
         plan_title = "🚚 PRO перевозчика"
         price = "490 ₽ / месяц"
-    elif plan == "business":
-        plan_title = "📦 BUSINESS грузоотправителя"
+    elif plan == "company":
+        plan_title = "📦 COMPANY грузоотправителя"
         price = "990 ₽ / месяц"
     else:
         plan_title = plan.upper()
@@ -1510,7 +1531,8 @@ async def plan_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
             full_name,
             telegram_username,
             role,
-            plan_type
+            plan_type,
+            phone
         FROM users
         WHERE id=$1
     """, user_id)
@@ -1538,6 +1560,7 @@ async def plan_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Цена: {price}\n\n"
         f"Пользователь: {user['full_name'] if user and user['full_name'] else tg_user.full_name}\n"
         f"Telegram: {username_text}\n"
+        f"Телефон: {user['phone'] if user and user['phone'] else '-'}\n"
         f"Telegram ID: {tg_user.id}\n"
         f"User ID в базе: {user_id}\n"
         f"Текущая роль: {user['role'] if user else '-'}\n"
@@ -1550,10 +1573,198 @@ async def plan_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             await context.bot.send_message(
                 chat_id=admin["telegram_id"],
-                text=admin_text
+                text=admin_text,
+                reply_markup=InlineKeyboardMarkup([
+                    [
+                        InlineKeyboardButton(
+                            "💬 Написать клиенту",
+                            url=f"tg://user?id={tg_user.id}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "✅ Подключить тариф",
+                            callback_data=f"plan_activate_{user_id}_{plan}"
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            "❌ Отклонить заявку",
+                            callback_data=f"plan_reject_{user_id}_{plan}"
+                        )
+                    ]
+                ])
             )
         except Exception as e:
             logging.warning(f"plan_request notify admin failed: {e}")
+
+
+async def plan_admin_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    admin_access = await get_user_roles(q.from_user.id)
+    if "admin" not in admin_access["roles"] and admin_access["primary_role"] != "admin":
+        await q.answer("⛔ Только администратор", show_alert=True)
+        return
+
+    parts = q.data.split("_")
+    # plan_activate_USERID_PLAN
+    # plan_reject_USERID_PLAN
+    action = parts[1]
+    user_id = int(parts[2])
+    plan = parts[3]
+
+    user = await DB.fetchrow("""
+        SELECT id, telegram_id, full_name, plan_type
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    if not user:
+        await q.message.reply_text("❌ Пользователь не найден")
+        return
+
+    if action == "activate":
+        await DB.execute("""
+            UPDATE users
+            SET plan_type=$1,
+                plan_expires_at=now() + interval '30 days'
+            WHERE id=$2
+        """, plan, user_id)
+
+        await q.message.reply_text(
+            f"✅ Тариф подключён\n\n"
+            f"Пользователь: {user['full_name'] or user_id}\n"
+            f"Тариф: {plan.upper()}\n"
+            f"Срок: 30 дней"
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=user["telegram_id"],
+                text=(
+                    f"✅ Ваш тариф {plan.upper()} подключён на 30 дней.\n\n"
+                    "Спасибо за оплату и доверие к Dalnoboy Bros."
+                )
+            )
+        except Exception as e:
+            logging.warning(f"plan activate notify user failed: {e}")
+
+    elif action == "reject":
+        await q.message.reply_text(
+            f"❌ Заявка отклонена\n\n"
+            f"Пользователь: {user['full_name'] or user_id}\n"
+            f"Тариф: {plan.upper()}"
+        )
+
+        try:
+            await context.bot.send_message(
+                chat_id=user["telegram_id"],
+                text=(
+                    f"❌ Заявка на тариф {plan.upper()} отклонена.\n\n"
+                    "Если это ошибка, напишите администратору."
+                )
+            )
+        except Exception as e:
+            logging.warning(f"plan reject notify user failed: {e}")
+
+
+async def tariffs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    access = await get_user_roles(update.effective_user.id)
+
+    if access["primary_role"] != "admin" and "admin" not in access["roles"]:
+        await update.message.reply_text("⛔ Только администратор")
+        return
+
+    rows = await DB.fetch("""
+        SELECT code, title, price_month, active
+        FROM tariff_settings
+        ORDER BY
+            CASE code
+                WHEN 'free' THEN 1
+                WHEN 'pro' THEN 2
+                WHEN 'company' THEN 3
+                WHEN 'dispatcher' THEN 4
+                ELSE 9
+            END
+    """)
+
+    if not rows:
+        await update.message.reply_text("❌ Таблица tariff_settings пустая")
+        return
+
+    text = "💳 Управление тарифами\n\n"
+    buttons = []
+
+    for r in rows:
+        status = "✅" if r["active"] else "⛔"
+        text += (
+            f"{status} {r['code'].upper()} — {r['title']}\n"
+            f"Цена: {r['price_month']} ₽/мес\n\n"
+        )
+
+        if r["code"] in ("pro", "company"):
+            buttons.append([
+                InlineKeyboardButton(
+                    f"✏️ Изменить {r['code'].upper()}",
+                    callback_data=f"tariff_edit_{r['code']}"
+                )
+            ])
+
+    buttons.append([InlineKeyboardButton("🛡 Открыть админку: нажмите нижнюю кнопку Админ", callback_data="noop")])
+
+    await update.message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    access = await get_user_roles(update.effective_user.id)
+
+    if access["primary_role"] != "admin" and "admin" not in access["roles"]:
+        await update.message.reply_text("⛔ Только администратор")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Использование:\n"
+            "/setprice pro 590\n"
+            "/setprice company 1490"
+        )
+        return
+
+    code = context.args[0].lower().strip()
+
+    try:
+        price = int(float(context.args[1].replace(",", ".")))
+    except Exception:
+        await update.message.reply_text("❌ Цена должна быть числом")
+        return
+
+    row = await DB.fetchrow("""
+        UPDATE tariff_settings
+        SET price_month=$1,
+            updated_at=now()
+        WHERE code=$2
+        RETURNING code, title, price_month
+    """, price, code)
+
+    if not row:
+        await update.message.reply_text("❌ Тариф не найден. Доступны: free, pro, company, dispatcher")
+        return
+
+    await update.message.reply_text(
+        f"✅ Цена тарифа обновлена\n\n"
+        f"{row['code'].upper()} — {row['title']}\n"
+        f"Новая цена: {row['price_month']} ₽/мес"
+    )
+
+
+async def noop_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer("Нажмите нижнюю кнопку 🛡 Админ", show_alert=False)
 
 
 async def matching(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2428,7 +2639,7 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("📦 Грузы", callback_data="admin_panel_cargo"),
          InlineKeyboardButton("🤝 Сделки", callback_data="admin_panel_deals")],
         [InlineKeyboardButton("⚠️ Споры", callback_data="admin_panel_disputes"),
-         InlineKeyboardButton("💳 Подписки", callback_data="admin_panel_subs")],
+         InlineKeyboardButton("💳 Тарифы", callback_data="admin_tariffs")],
         [InlineKeyboardButton("🚩 Жалобы", callback_data="admin_panel_reports"),
          InlineKeyboardButton("🔔 Маршруты", callback_data="admin_panel_routes")]
     ])
@@ -2436,6 +2647,123 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, reply_markup=kb)
 
 
+
+
+async def admin_tariffs_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    admin_id = await ensure_user(q.from_user)
+    if admin_id != 1:
+        await q.message.reply_text("⛔ Нет доступа")
+        return
+
+    rows = await DB.fetch("""
+        SELECT code, title, price_month, active
+        FROM tariff_settings
+        ORDER BY
+            CASE code
+                WHEN 'free' THEN 1
+                WHEN 'pro' THEN 2
+                WHEN 'company' THEN 3
+                WHEN 'dispatcher' THEN 4
+                ELSE 9
+            END
+    """)
+
+    text = "💳 Управление тарифами\n\n"
+    buttons = []
+
+    for r in rows:
+        status = "✅" if r["active"] else "⛔"
+        text += f"{status} {r['code'].upper()} — {r['title']}\nЦена: {r['price_month']} ₽/мес\n\n"
+
+        if r["code"] in ("pro", "company"):
+            buttons.append([
+                InlineKeyboardButton(
+                    f"✏️ Изменить {r['code'].upper()}",
+                    callback_data=f"tariff_edit_{r['code']}"
+                )
+            ])
+
+    buttons.append([InlineKeyboardButton("⬅️ Назад в админку", callback_data="admin_panel")])
+
+    await q.message.reply_text(
+        text,
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
+
+
+async def tariff_edit_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    admin_id = await ensure_user(q.from_user)
+    if admin_id != 1:
+        await q.message.reply_text("⛔ Нет доступа")
+        return
+
+    code = q.data.replace("tariff_edit_", "").strip()
+
+    row = await DB.fetchrow("""
+        SELECT code, title, price_month
+        FROM tariff_settings
+        WHERE code=$1
+    """, code)
+
+    if not row:
+        await q.message.reply_text("❌ Тариф не найден")
+        return
+
+    context.user_data["awaiting_tariff_price"] = code
+
+    await q.message.reply_text(
+        f"✏️ Изменение цены тарифа\n\n"
+        f"{row['code'].upper()} — {row['title']}\n"
+        f"Текущая цена: {row['price_month']} ₽/мес\n\n"
+        f"Введите новую цену числом.\n"
+        f"Например: 590"
+    )
+
+
+async def tariff_price_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    code = context.user_data.get("awaiting_tariff_price")
+    if not code:
+        return
+
+    admin_id = await ensure_user(update.effective_user)
+    if admin_id != 1:
+        context.user_data.pop("awaiting_tariff_price", None)
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
+    raw = update.message.text.strip().replace(" ", "").replace(",", ".")
+
+    try:
+        price = int(float(raw))
+    except Exception:
+        await update.message.reply_text("❌ Введите цену числом, например: 590")
+        return
+
+    context.user_data.pop("awaiting_tariff_price", None)
+
+    row = await DB.fetchrow("""
+        UPDATE tariff_settings
+        SET price_month=$1,
+            updated_at=now()
+        WHERE code=$2
+        RETURNING code, title, price_month
+    """, price, code)
+
+    if not row:
+        await update.message.reply_text("❌ Тариф не найден")
+        return
+
+    await update.message.reply_text(
+        f"✅ Цена сохранена\n\n"
+        f"{row['code'].upper()} — {row['title']}\n"
+        f"Новая цена: {row['price_month']} ₽/мес"
+    )
 
 
 async def adminusers(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6372,11 +6700,11 @@ async def newcargo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # Коммерческая модель v1:
     # грузоотправитель FREE = 1 активный груз
-    # грузоотправитель BUSINESS = до 20 активных грузов
+    # грузоотправитель COMPANY = до 20 активных грузов
     # dispatcher/admin/company пока без ограничений
     if role in ("admin", "dispatcher") or plan_type == "company":
         limit = 999999
-    elif plan_type == "business":
+    elif plan_type == "company":
         limit = 20
     else:
         limit = 1
@@ -6384,8 +6712,17 @@ async def newcargo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if active_cargo >= limit:
         if limit == 1:
             await update.message.reply_text(
-                "🚫 На тарифе FREE доступен только 1 активный груз.\n\n"
-                "Чтобы размещать больше грузов, подключите BUSINESS."
+                "🚫 Лимит FREE достигнут\n\n"
+                "На тарифе FREE доступен только 1 активный груз.\n\n"
+                "🏢 COMPANY — 990 ₽/месяц\n"
+                "✓ до 20 активных грузов\n"
+                "✓ VIP размещение\n"
+                "✓ поднятие грузов\n"
+                "✓ приоритет в выдаче\n\n"
+                "Нажмите кнопку ниже, чтобы отправить заявку.",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📦 Подключить COMPANY", callback_data="plan_request_company")]
+                ])
             )
         else:
             await update.message.reply_text(
@@ -7293,11 +7630,17 @@ async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             WHERE id=$3
         """, lat, lon, cargo_id)
 
+        access = await get_user_roles(update.effective_user.id)
+
         await update.message.reply_text(
             f"✅ Геолокация загрузки сохранена для груза #{cargo_id}\n"
             f"Широта: {round(lat, 4)}\n"
             f"Долгота: {round(lon, 4)}",
-            reply_markup=main_reply_keyboard()
+            reply_markup=main_reply_keyboard(
+                access["primary_role"],
+                access["verified"],
+                access["roles"]
+            )
         )
         return
 
@@ -7494,6 +7837,11 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if text == "👤 Профиль":
         return await profile(update, context)
     if text == "💳 Тарифы":
+        access = await get_user_roles(update.effective_user.id)
+
+        if access["primary_role"] == "admin" or "admin" in access["roles"]:
+            return await tariffs_cmd(update, context)
+
         return await plans(update, context)
     if text == "🏠 Меню":
         return await menu(update, context)
@@ -8967,6 +9315,8 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, deal_document_message), group=-1)
     app.add_handler(MessageHandler(filters.PHOTO, truck_photo_message))
     app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню|📝 Подать заявку|🤝 Сделки|➕ Запросить роль|🛡 Админ)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, tariff_price_text))
+
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, truck_edit_message))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, dispatcher_commission_text), group=-100)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
@@ -9070,6 +9420,9 @@ def main():
     app.add_handler(CallbackQueryHandler(response_action, pattern="^(accept|reject)_"))
     app.add_handler(CallbackQueryHandler(deal_closedispute_button, pattern="^deal_closedispute_"))
     app.add_handler(CallbackQueryHandler(deal_dispute_button, pattern="^deal_dispute_"))
+    app.add_handler(CallbackQueryHandler(admin_tariffs_button, pattern="^admin_tariffs$"))
+    app.add_handler(CallbackQueryHandler(noop_button, pattern="^noop$"))
+    app.add_handler(CallbackQueryHandler(tariff_edit_button, pattern="^tariff_edit_"))
     app.add_handler(CallbackQueryHandler(admin_setplan_button, pattern="^admin_setplan_"))
     app.add_handler(CallbackQueryHandler(admin_dispute_buttons, pattern="^admin_(dealchat|notes|close_dispute)_"))
     app.add_handler(CallbackQueryHandler(deal_reason_help, pattern="^deal_reason_help_"))
@@ -9100,10 +9453,13 @@ def main():
 
     app.add_handler(CommandHandler("menu", menu))
     app.add_handler(CallbackQueryHandler(plan_request, pattern="^plan_request_"))
+    app.add_handler(CallbackQueryHandler(plan_admin_action, pattern="^plan_(activate|reject)_"))
     app.add_handler(CallbackQueryHandler(menu_button, pattern="^(menu_|buy_plan)"))
     app.add_handler(CommandHandler("dashboard", dashboard))
     app.add_handler(CommandHandler("monetization", monetization))
     app.add_handler(CommandHandler("setplan", setplan))
+    app.add_handler(CommandHandler("tariffs", tariffs_cmd))
+    app.add_handler(CommandHandler("setprice", setprice))
 
     app.add_handler(CommandHandler("docs", docs))
 
