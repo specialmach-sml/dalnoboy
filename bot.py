@@ -2766,6 +2766,61 @@ async def tariff_price_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def admin_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    admin_id = await ensure_user(q.from_user)
+
+    if admin_id != 1:
+        await q.message.reply_text("⛔ Нет доступа")
+        return
+
+    class FakeUpdate:
+        def __init__(self, q):
+            self.message = q.message
+            self.effective_user = q.from_user
+
+    fake_update = FakeUpdate(q)
+
+    data = q.data
+
+    if data == "admin_panel":
+        return await admin(fake_update, context)
+
+    if data == "admin_panel_stats":
+        return await dashboard(fake_update, context)
+
+    if data == "admin_panel_report":
+        return await dealreport(fake_update, context)
+
+    if data == "admin_panel_today":
+        return await today(fake_update, context)
+
+    if data == "admin_panel_users":
+        return await adminusers(fake_update, context)
+
+    if data == "admin_panel_cargo":
+        return await admincargo(fake_update, context)
+
+    if data == "admin_panel_deals":
+        return await admindeals(fake_update, context)
+
+    if data == "admin_panel_disputes":
+        return await admindisputes(fake_update, context)
+
+    if data == "admin_panel_subs":
+        return await adminsubs(fake_update, context)
+
+    if data == "admin_panel_reports":
+        return await adminreports(fake_update, context)
+
+    if data == "admin_panel_routes":
+        return await mysubs(fake_update, context)
+
+    await q.message.reply_text("❌ Неизвестный раздел админки")
+
+
 async def adminusers(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -5232,7 +5287,9 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             c.to_city,
             c.price_amount,
             c.price_currency,
+            c.created_by AS owner_id,
             t.id AS truck_id,
+            t.driver_id AS driver_id,
             t.current_city,
             t.body_type,
             (
@@ -7787,6 +7844,8 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if text == "🟢 Выгодные":
         context.args = ["500"]
         return await nearby_profit(update, context)
+    if text == "🤝 Сделки":
+        return await deals_list(update, context)
     if text == "⚙️ Настройки":
         return await truck_settings(update, context)
     if text == "🗺 Карта":
@@ -9420,6 +9479,7 @@ def main():
     app.add_handler(CallbackQueryHandler(response_action, pattern="^(accept|reject)_"))
     app.add_handler(CallbackQueryHandler(deal_closedispute_button, pattern="^deal_closedispute_"))
     app.add_handler(CallbackQueryHandler(deal_dispute_button, pattern="^deal_dispute_"))
+    app.add_handler(CallbackQueryHandler(admin_panel_button, pattern="^admin_panel"))
     app.add_handler(CallbackQueryHandler(admin_tariffs_button, pattern="^admin_tariffs$"))
     app.add_handler(CallbackQueryHandler(noop_button, pattern="^noop$"))
     app.add_handler(CallbackQueryHandler(tariff_edit_button, pattern="^tariff_edit_"))
