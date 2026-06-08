@@ -53,11 +53,7 @@ CARGO_FROM = 1
 CARGO_TO = 2
 CARGO_DESC = 3
 CARGO_PRICE = 4
-CARGO_WEIGHT = 5
-CARGO_VOLUME = 6
-CARGO_PLACES = 7
-CARGO_TYPE = 8
-CARGO_DISTANCE = 9
+CARGO_DISTANCE = 5
 
 TRUCK_CITY = 20
 TRUCK_BODY = 21
@@ -141,9 +137,10 @@ def main_reply_keyboard(role="carrier", verified=True, roles=None):
             ["🗺 Карта"],
             ["📦 Грузы", "📋 Мои грузы"],
             ["🚚 Машина", "📨 Отклики"],
-            ["🤝 Сделки", "🛡 Админ"],
-            ["💳 Тарифы", "⚙️ Настройки"],
-            ["👤 Профиль"]
+            ["🤝 Сделки"],
+            ["👤 Профиль", "⚙️ Настройки"],
+            ["💳 Тарифы"],
+            ["🛡 Админ"]
         ]
 
     # Перевозчик видит только перевозчика
@@ -1238,32 +1235,6 @@ async def truck_edit_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def truck_edit_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.user_data.get("awaiting_dispute_reason"):
-        deal_id = context.user_data.pop("awaiting_dispute_reason")
-        reason = text.strip()
-
-        if len(reason) < 3:
-            context.user_data["awaiting_dispute_reason"] = deal_id
-            await update.message.reply_text("❌ Опишите причину подробнее.")
-            return
-
-        user_id = await ensure_user(update.effective_user)
-
-        await DB.execute("""
-            INSERT INTO deal_messages (
-                deal_id,
-                from_user_id,
-                message_text
-            )
-            VALUES ($1,$2,$3)
-        """, deal_id, user_id, f"⚠️ Причина спора: {reason}")
-
-        await update.message.reply_text(
-            f"✅ Причина спора сохранена по сделке #{deal_id}\n\n"
-            f"Причина: {reason}"
-        )
-        return
-
     if context.user_data.get("awaiting_rate"):
         context.user_data["awaiting_rate"] = False
 
@@ -1708,7 +1679,7 @@ async def tariffs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     rows = await DB.fetch("""
-        SELECT code, title, price_month, active
+        SELECT code, title, price_month, active, updated_at
         FROM tariff_settings
         ORDER BY
             CASE code
@@ -1724,30 +1695,23 @@ async def tariffs_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Таблица tariff_settings пустая")
         return
 
-    text = "💳 Управление тарифами\n\n"
-    buttons = []
+    text = "💳 Тарифы и цены\n\n"
 
     for r in rows:
-        status = "✅" if r["active"] else "⛔"
+        status = "✅ активен" if r["active"] else "⛔ выключен"
         text += (
-            f"{status} {r['code'].upper()} — {r['title']}\n"
-            f"Цена: {r['price_month']} ₽/мес\n\n"
+            f"{r['code'].upper()} — {r['title']}\n"
+            f"Цена: {r['price_month']} ₽/мес\n"
+            f"Статус: {status}\n\n"
         )
 
-        if r["code"] in ("pro", "company"):
-            buttons.append([
-                InlineKeyboardButton(
-                    f"✏️ Изменить {r['code'].upper()}",
-                    callback_data=f"tariff_edit_{r['code']}"
-                )
-            ])
-
-    buttons.append([InlineKeyboardButton("🛡 Открыть админку: нажмите нижнюю кнопку Админ", callback_data="noop")])
-
-    await update.message.reply_text(
-        text,
-        reply_markup=InlineKeyboardMarkup(buttons)
+    text += (
+        "Изменить цену:\n"
+        "/setprice pro 590\n"
+        "/setprice company 1490"
     )
+
+    await update.message.reply_text(text)
 
 
 async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1790,11 +1754,6 @@ async def setprice(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{row['code'].upper()} — {row['title']}\n"
         f"Новая цена: {row['price_month']} ₽/мес"
     )
-
-
-async def noop_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer("Нажмите нижнюю кнопку 🛡 Админ", show_alert=False)
 
 
 async def matching(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2794,61 +2753,6 @@ async def tariff_price_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"{row['code'].upper()} — {row['title']}\n"
         f"Новая цена: {row['price_month']} ₽/мес"
     )
-
-
-async def admin_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    q = update.callback_query
-    await q.answer()
-
-    admin_id = await ensure_user(q.from_user)
-
-    if admin_id != 1:
-        await q.message.reply_text("⛔ Нет доступа")
-        return
-
-    class FakeUpdate:
-        def __init__(self, q):
-            self.message = q.message
-            self.effective_user = q.from_user
-
-    fake_update = FakeUpdate(q)
-
-    data = q.data
-
-    if data == "admin_panel":
-        return await admin(fake_update, context)
-
-    if data == "admin_panel_stats":
-        return await dashboard(fake_update, context)
-
-    if data == "admin_panel_report":
-        return await dealreport(fake_update, context)
-
-    if data == "admin_panel_today":
-        return await today(fake_update, context)
-
-    if data == "admin_panel_users":
-        return await adminusers(fake_update, context)
-
-    if data == "admin_panel_cargo":
-        return await admincargo(fake_update, context)
-
-    if data == "admin_panel_deals":
-        return await admindeals(fake_update, context)
-
-    if data == "admin_panel_disputes":
-        return await admindisputes(fake_update, context)
-
-    if data == "admin_panel_subs":
-        return await adminsubs(fake_update, context)
-
-    if data == "admin_panel_reports":
-        return await adminreports(fake_update, context)
-
-    if data == "admin_panel_routes":
-        return await mysubs(fake_update, context)
-
-    await q.message.reply_text("❌ Неизвестный раздел админки")
 
 
 async def adminusers(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5317,9 +5221,7 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             c.to_city,
             c.price_amount,
             c.price_currency,
-            c.created_by AS owner_id,
             t.id AS truck_id,
-            t.driver_id AS driver_id,
             t.current_city,
             t.body_type,
             (
@@ -5369,12 +5271,6 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
                     InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
                 ],
-                [
-                    InlineKeyboardButton(
-                        "✅ Закрыть спор" if r["dispute"] else "⚠️ Открыть спор",
-                        callback_data=f"deal_closedispute_{r['id']}" if r["dispute"] else f"deal_dispute_{r['id']}"
-                    )
-                ],
                 [InlineKeyboardButton("📄 Отчёт", callback_data=f"deal_report_{r['id']}")],
                 [
                     InlineKeyboardButton("📄 Документы", callback_data=f"deal_docs_{r['id']}"),
@@ -5394,18 +5290,18 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
                     InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
                 ],
-                [
-                    InlineKeyboardButton(
-                        "✅ Закрыть спор" if r["dispute"] else "⚠️ Открыть спор",
-                        callback_data=f"deal_closedispute_{r['id']}" if r["dispute"] else f"deal_dispute_{r['id']}"
-                    )
-                ],
                 [InlineKeyboardButton("📄 Отчёт", callback_data=f"deal_report_{r['id']}")],
                 [
                     InlineKeyboardButton("📄 Документы", callback_data=f"deal_docs_{r['id']}"),
                     InlineKeyboardButton("📸 Фото загрузки", callback_data=f"deal_loadphoto_{r['id']}")
                 ],
                 [InlineKeyboardButton("📸 Фото выгрузки", callback_data=f"deal_unloadphoto_{r['id']}")],
+                [
+                    InlineKeyboardButton(
+                        "✅ Закрыть спор" if r["dispute"] else "⚠️ Открыть спор",
+                        callback_data=f"deal_closedispute_{r['id']}" if r["dispute"] else f"deal_dispute_{r['id']}"
+                    )
+                ]
             ]
 
         if r["status"] in ("done", "delivered"):
@@ -5534,13 +5430,10 @@ async def deal_dispute_button(update: Update, context: ContextTypes.DEFAULT_TYPE
             text=f"⚠️ По сделке #{deal_id} открыт спор\nОткрыть: /dealchat {deal_id}"
         )
 
-    context.user_data["awaiting_dispute_reason"] = deal_id
-
     await q.message.reply_text(
         f"⚠️ Спор по сделке #{deal_id} открыт\n\n"
-        f"Опишите причину спора одним сообщением.\n"
-        f"Например: груз повреждён, оплата задержана, условия не совпали.\n\n"
-        f"Отмена: /cancel"
+        f"Чтобы добавить причину, напишите:\n"
+        f"/dispute {deal_id} причина спора"
     )
 
 
@@ -5637,19 +5530,9 @@ async def deal_docs_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["deal_upload_id"] = deal_id
     context.user_data["deal_upload_type"] = doc_type
 
-    if doc_type == "load_photo":
-        title = "📸 Фото загрузки"
-        hint = "Отправьте фото с места загрузки следующим сообщением."
-    elif doc_type == "unload_photo":
-        title = "📸 Фото выгрузки"
-        hint = "Отправьте фото с места выгрузки следующим сообщением."
-    else:
-        title = "📄 Документ сделки"
-        hint = "Отправьте файл или фото следующим сообщением."
-
     await q.message.reply_text(
-        f"{title} для сделки #{deal_id}\n\n"
-        f"{hint}\n\n"
+        f"📤 Отправьте файл или фото для сделки #{deal_id}\n\n"
+        f"Тип: {doc_type}\n"
         f"Отмена: /cancel"
     )
 
@@ -5689,53 +5572,6 @@ async def deal_open_document(update: Update, context: ContextTypes.DEFAULT_TYPE)
             document=doc["file_id"],
             caption=caption
         )
-
-
-
-async def dispute_reason_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    deal_id = context.user_data.get("awaiting_dispute_reason")
-
-    if not deal_id:
-        return
-
-    text = (update.message.text or "").strip()
-
-    if len(text) < 3:
-        await update.message.reply_text("❌ Опишите причину спора подробнее.")
-        raise ApplicationHandlerStop
-
-    user_id = await ensure_user(update.effective_user)
-
-    deal = await DB.fetchrow("""
-        SELECT d.id, c.created_by, r.driver_id
-        FROM deals d
-        JOIN cargo c ON c.id = d.cargo_id
-        JOIN responses r ON r.id = d.response_id
-        WHERE d.id=$1
-    """, deal_id)
-
-    if not deal or user_id not in [deal["created_by"], deal["driver_id"]]:
-        context.user_data.pop("awaiting_dispute_reason", None)
-        await update.message.reply_text("⛔ Нет доступа к этой сделке")
-        raise ApplicationHandlerStop
-
-    await DB.execute("""
-        INSERT INTO deal_messages (
-            deal_id,
-            from_user_id,
-            message_text
-        )
-        VALUES ($1,$2,$3)
-    """, deal_id, user_id, f"⚠️ Причина спора: {text}")
-
-    context.user_data.pop("awaiting_dispute_reason", None)
-
-    await update.message.reply_text(
-        f"✅ Причина спора сохранена по сделке #{deal_id}\n\n"
-        f"Причина: {text}"
-    )
-
-    raise ApplicationHandlerStop
 
 
 async def deal_document_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -5782,15 +5618,9 @@ async def deal_document_message(update: Update, context: ContextTypes.DEFAULT_TY
     context.user_data.pop("deal_upload_id", None)
     context.user_data.pop("deal_upload_type", None)
 
-    if doc_type == "load_photo":
-        saved_text = f"✅ Фото загрузки сохранено в сделке #{deal_id}"
-    elif doc_type == "unload_photo":
-        saved_text = f"✅ Фото выгрузки сохранено в сделке #{deal_id}"
-    else:
-        saved_text = f"✅ Документ сохранён в сделке #{deal_id}"
-
-    await update.message.reply_text(saved_text)
-    raise ApplicationHandlerStop
+    await update.message.reply_text(
+        f"✅ Документ сохранён в сделке #{deal_id}"
+    )
 
 
 async def deal_history_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -6925,132 +6755,7 @@ async def newcargo_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["newcargo"]["price_amount"] = price_amount
 
     await update.message.reply_text(
-        "⚖️ Введите вес груза в кг\n\n"
-        "Например: 350\n"
-        "Если вес неизвестен — введите 0"
-    )
-
-    return CARGO_WEIGHT
-
-
-
-async def newcargo_weight(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw = update.message.text.strip().replace(" ", "").replace(",", ".")
-
-    try:
-        weight_kg = float(raw)
-    except ValueError:
-        await update.message.reply_text("❌ Введите вес числом, например: 350")
-        return CARGO_WEIGHT
-
-    if weight_kg < 0:
-        await update.message.reply_text("❌ Вес не может быть отрицательным")
-        return CARGO_WEIGHT
-
-    context.user_data["newcargo"]["weight_kg"] = weight_kg
-
-    await update.message.reply_text(
-        "📦 Введите объём груза в м³\n\n"
-        "Например: 2.5\n"
-        "Если объём неизвестен — введите 0"
-    )
-
-    return CARGO_VOLUME
-
-
-async def newcargo_volume(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw = update.message.text.strip().replace(" ", "").replace(",", ".")
-
-    try:
-        volume_m3 = float(raw)
-    except ValueError:
-        await update.message.reply_text("❌ Введите объём числом, например: 2.5")
-        return CARGO_VOLUME
-
-    if volume_m3 < 0:
-        await update.message.reply_text("❌ Объём не может быть отрицательным")
-        return CARGO_VOLUME
-
-    context.user_data["newcargo"]["volume_m3"] = volume_m3
-
-    await update.message.reply_text(
-        "🔢 Введите количество мест\n\n"
-        "Например: 5\n"
-        "Если неизвестно — введите 0"
-    )
-
-    return CARGO_PLACES
-
-
-async def newcargo_places(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    raw = update.message.text.strip().replace(" ", "")
-
-    try:
-        places_count = int(raw)
-    except ValueError:
-        await update.message.reply_text("❌ Введите количество мест числом, например: 5")
-        return CARGO_PLACES
-
-    if places_count < 0:
-        await update.message.reply_text("❌ Количество мест не может быть отрицательным")
-        return CARGO_PLACES
-
-    context.user_data["newcargo"]["places_count"] = places_count
-
-    kb = ReplyKeyboardMarkup(
-        [
-            ["🚛 Полная загрузка", "📦 Догруз"],
-            ["📬 Посылка", "📄 Документы"]
-        ],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
-
-    await update.message.reply_text(
-        "🚚 Выберите тип перевозки:",
-        reply_markup=kb
-    )
-
-    return CARGO_TYPE
-
-
-async def newcargo_type(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip().lower()
-
-    mapping = {
-        "🚛 полная загрузка": "full",
-        "полная загрузка": "full",
-        "полный груз": "full",
-        "full": "full",
-
-        "📦 догруз": "partial",
-        "догруз": "partial",
-        "partial": "partial",
-
-        "📬 посылка": "parcel",
-        "посылка": "parcel",
-        "коробка": "parcel",
-        "parcel": "parcel",
-
-        "📄 документы": "mail",
-        "документы": "mail",
-        "почта": "mail",
-        "mail": "mail",
-    }
-
-    cargo_type = mapping.get(text)
-
-    if not cargo_type:
-        await update.message.reply_text(
-            "❌ Выберите тип кнопкой или напишите: полный груз, догруз, посылка, документы"
-        )
-        return CARGO_TYPE
-
-    context.user_data["newcargo"]["cargo_type"] = cargo_type
-
-    await update.message.reply_text(
-        "📏 Введите расстояние маршрута в км\n\nНапример: 850",
-        reply_markup=main_reply_keyboard("shipper", True, [])
+        "📏 Введите расстояние маршрута в км\n\nНапример: 850"
     )
 
     return CARGO_DISTANCE
@@ -7093,15 +6798,11 @@ async def newcargo_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
             description,
             price_amount,
             price_currency,
-            weight_kg,
-            volume_m3,
-            places_count,
-            cargo_type,
             distance_km,
             rate_per_km,
             status
         )
-        VALUES ($1,$2,$3,$4,$5,'RUB',$6,$7,$8,$9,$10,$11,'open')
+        VALUES ($1,$2,$3,$4,$5,'RUB',$6,$7,'open')
         RETURNING id
     """,
         user_id,
@@ -7109,10 +6810,6 @@ async def newcargo_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data["to_city"],
         data["description"],
         data["price_amount"],
-        data.get("weight_kg", 0),
-        data.get("volume_m3", 0),
-        data.get("places_count", 0),
-        data.get("cargo_type", "full"),
         data["distance_km"],
         round(data["price_amount"] / data["distance_km"], 2) if data["distance_km"] else None
     )
@@ -7125,23 +6822,11 @@ async def newcargo_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
         one_time_keyboard=True
     )
 
-    type_names = {
-        "full": "🚛 Полная загрузка",
-        "partial": "📦 Догруз",
-        "parcel": "📬 Посылка",
-        "mail": "📄 Документы/почта",
-        "pallet": "📦 Паллеты"
-    }
-
     await update.message.reply_text(
         f"✅ Груз создан #{row['id']}\n"
         f"📍 {data['from_city']} → {data['to_city']}\n"
         f"📝 {data['description']}\n"
         f"💰 Цена: {data['price_amount']} RUB\n"
-        f"⚖️ Вес: {data.get('weight_kg', 0)} кг\n"
-        f"📦 Объём: {data.get('volume_m3', 0)} м³\n"
-        f"🔢 Мест: {data.get('places_count', 0)}\n"
-        f"🚚 Тип: {type_names.get(data.get('cargo_type', 'full'), data.get('cargo_type', 'full'))}\n"
         f"📏 Расстояние: {data['distance_km']} км\n"
         f"💵 Ставка: {round(data['price_amount'] / data['distance_km'], 2)} ₽/км\n\n"
         f"📌 Отправьте геолокацию места загрузки кнопкой ниже.",
@@ -8091,8 +7776,6 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if text == "🟢 Выгодные":
         context.args = ["500"]
         return await nearby_profit(update, context)
-    if text == "🤝 Сделки":
-        return await deals_list(update, context)
     if text == "⚙️ Настройки":
         return await truck_settings(update, context)
     if text == "🗺 Карта":
@@ -8143,11 +7826,6 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     if text == "👤 Профиль":
         return await profile(update, context)
     if text == "💳 Тарифы":
-        access = await get_user_roles(update.effective_user.id)
-
-        if access["primary_role"] == "admin" or "admin" in access["roles"]:
-            return await tariffs_cmd(update, context)
-
         return await plans(update, context)
     if text == "🏠 Меню":
         return await menu(update, context)
@@ -9590,10 +9268,6 @@ def main():
             CARGO_TO: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_to)],
             CARGO_DESC: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_desc)],
             CARGO_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_price)],
-            CARGO_WEIGHT: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_weight)],
-            CARGO_VOLUME: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_volume)],
-            CARGO_PLACES: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_places)],
-            CARGO_TYPE: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_type)],
             CARGO_DISTANCE: [MessageHandler(filters.TEXT & ~filters.COMMAND, newcargo_distance)],
         },
         fallbacks=[CommandHandler("cancel", newcargo_cancel)],
@@ -9622,7 +9296,6 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, dispute_reason_text), group=-4)
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, deal_document_message), group=-1)
     app.add_handler(MessageHandler(filters.PHOTO, truck_photo_message))
     app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню|📝 Подать заявку|🤝 Сделки|➕ Запросить роль|🛡 Админ)$"), reply_menu_handler))
@@ -9731,9 +9404,7 @@ def main():
     app.add_handler(CallbackQueryHandler(response_action, pattern="^(accept|reject)_"))
     app.add_handler(CallbackQueryHandler(deal_closedispute_button, pattern="^deal_closedispute_"))
     app.add_handler(CallbackQueryHandler(deal_dispute_button, pattern="^deal_dispute_"))
-    app.add_handler(CallbackQueryHandler(admin_panel_button, pattern="^admin_panel"))
     app.add_handler(CallbackQueryHandler(admin_tariffs_button, pattern="^admin_tariffs$"))
-    app.add_handler(CallbackQueryHandler(noop_button, pattern="^noop$"))
     app.add_handler(CallbackQueryHandler(tariff_edit_button, pattern="^tariff_edit_"))
     app.add_handler(CallbackQueryHandler(admin_setplan_button, pattern="^admin_setplan_"))
     app.add_handler(CallbackQueryHandler(admin_dispute_buttons, pattern="^admin_(dealchat|notes|close_dispute)_"))

@@ -1113,7 +1113,6 @@ if(box) box.remove();
 box=document.createElement("div");
 
 
-
 box.id="dealModal";
 
 box.style=`
