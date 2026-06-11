@@ -288,10 +288,171 @@
       #cargoList { max-height: 65px; }
       #createCargoPanel { max-height: 50vh; }
     }
-  </style>
+  
+/* === MOBILE FULLSCREEN CARGO LIST FIX === */
+#createCargoBtn {
+  position: fixed !important;
+  top: 8px !important;
+  right: 8px !important;
+  z-index: 5000 !important;
+  background: #1976d2 !important;
+  color: #fff !important;
+  border: none !important;
+  padding: 7px 10px !important;
+  border-radius: 11px !important;
+  cursor: pointer !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 4px 14px rgba(0,0,0,.24) !important;
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+}
+
+#openCargoListBtn {
+  position: fixed !important;
+  top: 47px !important;
+  right: 8px !important;
+  z-index: 5000 !important;
+  background: #455a64 !important;
+  color: #fff !important;
+  border: none !important;
+  padding: 7px 10px !important;
+  border-radius: 11px !important;
+  cursor: pointer !important;
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 4px 14px rgba(0,0,0,.24) !important;
+  line-height: 1.1 !important;
+  white-space: nowrap !important;
+}
+
+.leaflet-control-zoom {
+  margin-top: 8px !important;
+  margin-left: 8px !important;
+}
+
+#closeCargoPanelBtn {
+  display: none;
+}
+
+@media (max-width: 900px) {
+  #panel {
+    display: none !important;
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    top: 56px !important;
+    bottom: 8px !important;
+    width: auto !important;
+    max-height: none !important;
+    height: auto !important;
+    border-radius: 16px !important;
+    padding: 10px !important;
+    z-index: 4700 !important;
+    overflow: hidden !important;
+    background: rgba(255,255,255,.98) !important;
+  }
+
+  #panel.mobile-open {
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  #panelHeader {
+    flex: 0 0 auto !important;
+  }
+
+  #cargoList {
+    flex: 1 1 auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    padding-bottom: 8px !important;
+  }
+
+  #closeCargoPanelBtn {
+    display: inline-block !important;
+  }
+
+  #createCargoPanel {
+    position: fixed !important;
+    left: 8px !important;
+    right: 8px !important;
+    top: 56px !important;
+    bottom: 8px !important;
+    width: auto !important;
+    max-height: none !important;
+    overflow-y: auto !important;
+    z-index: 4800 !important;
+    padding: 10px !important;
+  }
+
+  .cargo-card {
+    font-size: 13px !important;
+    padding: 10px !important;
+    margin: 8px 0 !important;
+    border-radius: 12px !important;
+    border: 1px solid #d8d8d8 !important;
+    background: #fff !important;
+  }
+
+  .cargo-card-title {
+    font-size: 13px !important;
+  }
+
+  .cargo-card-meta {
+    font-size: 12px !important;
+  }
+}
+
+@media (min-width: 901px) {
+  #openCargoListBtn {
+    display: none !important;
+  }
+
+  #closeCargoPanelBtn {
+    display: none !important;
+  }
+
+  #panel {
+    display: flex !important;
+  }
+}
+/* === END MOBILE FULLSCREEN CARGO LIST FIX === */
+
+
+/* === UI CLEAN OPEN PANELS === */
+body.cargo-list-open #createCargoBtn,
+body.cargo-list-open #openCargoListBtn,
+body.create-form-open #createCargoBtn,
+body.create-form-open #openCargoListBtn {
+  display: none !important;
+}
+
+#createCargoCloseBtn {
+  position: sticky !important;
+  top: 0 !important;
+  float: right !important;
+  z-index: 20 !important;
+  background: #e53935 !important;
+  color: #fff !important;
+  border: none !important;
+  border-radius: 10px !important;
+  padding: 6px 10px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+  margin-bottom: 6px !important;
+}
+/* === END UI CLEAN OPEN PANELS === */
+
+</style>
 </head>
 <body>
 <div id="map"></div>
+
+<button id="createCargoBtn" type="button">➕ Создать груз</button>
+<button id="openCargoListBtn" type="button">📦 Грузы</button>
 
 <div id="createCargoPanel">
   <b>➕ Новый груз</b>
@@ -329,7 +490,10 @@
   <div id="panelHeader">
     <div id="panelTitleLine">
       <b>🚛 Dalnoboy карта</b>
-      <button onclick="toggleStats()" class="btn btn-dark">📊</button>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <button onclick="toggleStats()" class="btn btn-dark">📊</button>
+        <button id="closeCargoPanelBtn" onclick="closeCargoPanel()" class="btn">✕</button>
+      </div>
     </div>
 
     <div id="statOneLine">
@@ -407,6 +571,71 @@ setTimeout(() => map.invalidateSize(), 1000);
 setTimeout(() => map.invalidateSize(), 1800);
 window.addEventListener('resize', () => map.invalidateSize());
 
+
+/* === MOBILE PANEL JS FIX === */
+function openCargoPanel() {
+  const panel = document.getElementById('panel');
+  const createPanel = document.getElementById('createCargoPanel');
+  if (createPanel) createPanel.style.display = 'none';
+  if (panel) panel.classList.add('mobile-open');
+}
+
+function closeCargoPanel() {
+  const panel = document.getElementById('panel');
+  if (panel) panel.classList.remove('mobile-open');
+}
+
+function toggleCreateCargoPanelFixed() {
+  const panel = document.getElementById('createCargoPanel');
+  if (!panel) return;
+
+  closeCargoPanel();
+
+  panel.style.display =
+    panel.style.display === 'block'
+      ? 'none'
+      : 'block';
+
+  if (typeof createMode !== 'undefined') {
+    createMode = false;
+  }
+
+  setTimeout(() => {
+    if (typeof map !== 'undefined' && map.invalidateSize) {
+      map.invalidateSize();
+    }
+  }, 150);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  const openBtn = document.getElementById('openCargoListBtn');
+  if (openBtn) {
+    openBtn.onclick = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openCargoPanel();
+    };
+  }
+
+  const createBtn = document.getElementById('createCargoBtn');
+  if (createBtn) {
+    createBtn.onclick = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleCreateCargoPanelFixed();
+    };
+  }
+});
+
+window.addEventListener('resize', function() {
+  const panel = document.getElementById('panel');
+  if (window.innerWidth > 900 && panel) {
+    panel.classList.remove('mobile-open');
+  }
+});
+/* === END MOBILE PANEL JS FIX === */
+
+
 let myLocationMarker = null;
 let myRadiusCircle = null;
 
@@ -467,23 +696,6 @@ let dropoffPoint = null;
 let pickupMarker = null;
 let dropoffMarker = null;
 let routeLine = null;
-
-const createControl = L.control({ position: 'topleft' });
-createControl.onAdd = function() {
-  const div = L.DomUtil.create('div');
-  div.innerHTML = '<button class="create-btn" id="createCargoBtn">➕ Создать груз</button>';
-  L.DomEvent.disableClickPropagation(div);
-  return div;
-};
-createControl.addTo(map);
-
-document.getElementById('createCargoBtn').addEventListener('click', function() {
-  const panel = document.getElementById('createCargoPanel');
-  panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
-  createMode = false;
-  setTimeout(() => map.invalidateSize(), 150);
-});
-
 function enablePointSelectMode() {
   createMode = true;
   alert('Кликни на карте точку ЗАГРУЗКИ, потом точку ВЫГРУЗКИ');
@@ -880,7 +1092,11 @@ function selectCargo(cargoId, moveMap) {
     const pos = marker.getLatLng();
     map.setView(pos, Math.max(map.getZoom(), 10));
     marker.openPopup();
-  }
+  
+    if (window.innerWidth <= 900 && typeof closeCargoPanel === 'function') {
+      closeCargoPanel();
+    }
+}
 }
 
 function getCargoArray(data) {
@@ -1120,6 +1336,204 @@ loadMyTruckInfo().then(() => {
   loadTrucks();
   setupSocket();
 });
+
+/* === UI CLEAN JS === */
+function setMapUiState(state) {
+  document.body.classList.remove('cargo-list-open', 'create-form-open');
+
+  if (state === 'list') {
+    document.body.classList.add('cargo-list-open');
+  }
+
+  if (state === 'create') {
+    document.body.classList.add('create-form-open');
+  }
+}
+
+function ensureCreateCloseButton() {
+  const panel = document.getElementById('createCargoPanel');
+  if (!panel || document.getElementById('createCargoCloseBtn')) return;
+
+  panel.insertAdjacentHTML(
+    'afterbegin',
+    '<button id="createCargoCloseBtn" type="button" onclick="closeCreateCargoPanel()">✕ Закрыть</button>'
+  );
+}
+
+function closeCreateCargoPanel() {
+  const panel = document.getElementById('createCargoPanel');
+  if (panel) panel.style.display = 'none';
+  setMapUiState(null);
+
+  if (typeof map !== 'undefined' && map.invalidateSize) {
+    setTimeout(() => map.invalidateSize(), 100);
+  }
+}
+
+function openCargoPanel() {
+  const panel = document.getElementById('panel');
+  const createPanel = document.getElementById('createCargoPanel');
+
+  if (createPanel) createPanel.style.display = 'none';
+  if (panel) panel.classList.add('mobile-open');
+
+  setMapUiState('list');
+}
+
+function closeCargoPanel() {
+  const panel = document.getElementById('panel');
+  if (panel) panel.classList.remove('mobile-open');
+
+  setMapUiState(null);
+}
+
+function toggleCreateCargoPanelFixed() {
+  const panel = document.getElementById('createCargoPanel');
+  if (!panel) return;
+
+  ensureCreateCloseButton();
+  closeCargoPanel();
+
+  if (panel.style.display === 'block') {
+    closeCreateCargoPanel();
+    return;
+  }
+
+  panel.style.display = 'block';
+  setMapUiState('create');
+
+  if (typeof createMode !== 'undefined') {
+    createMode = false;
+  }
+
+  if (typeof map !== 'undefined' && map.invalidateSize) {
+    setTimeout(() => map.invalidateSize(), 150);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+  ensureCreateCloseButton();
+
+  const openBtn = document.getElementById('openCargoListBtn');
+  if (openBtn) {
+    openBtn.onclick = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      openCargoPanel();
+    };
+  }
+
+  const createBtn = document.getElementById('createCargoBtn');
+  if (createBtn) {
+    createBtn.onclick = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleCreateCargoPanelFixed();
+    };
+  }
+});
+/* === END UI CLEAN JS === */
+
 </script>
 </body>
 </html>
+
+<style>
+/* final force hide top buttons when modal panels are open */
+body.create-form-open #createCargoBtn,
+body.create-form-open #openCargoListBtn,
+body.cargo-list-open #createCargoBtn,
+body.cargo-list-open #openCargoListBtn {
+  display: none !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+</style>
+
+<script>
+document.addEventListener('click', function(e) {
+  const createPanel = document.getElementById('createCargoPanel');
+  const listPanel = document.getElementById('panel');
+
+  setTimeout(function() {
+    const createOpen = createPanel && createPanel.style.display === 'block';
+    const listOpen = listPanel && listPanel.classList.contains('mobile-open');
+
+    document.body.classList.toggle('create-form-open', createOpen);
+    document.body.classList.toggle('cargo-list-open', listOpen);
+  }, 30);
+});
+</script>
+
+<script>
+/* final direct hide/show top map buttons */
+function hideTopMapButtons() {
+  const a = document.getElementById('createCargoBtn');
+  const b = document.getElementById('openCargoListBtn');
+
+  if (a) a.style.setProperty('display', 'none', 'important');
+  if (b) b.style.setProperty('display', 'none', 'important');
+}
+
+function showTopMapButtons() {
+  const a = document.getElementById('createCargoBtn');
+  const b = document.getElementById('openCargoListBtn');
+
+  if (a) a.style.removeProperty('display');
+  if (b) b.style.removeProperty('display');
+}
+
+const oldOpenCargoPanel = window.openCargoPanel;
+window.openCargoPanel = function() {
+  if (oldOpenCargoPanel) oldOpenCargoPanel();
+  hideTopMapButtons();
+};
+
+const oldCloseCargoPanel = window.closeCargoPanel;
+window.closeCargoPanel = function() {
+  if (oldCloseCargoPanel) oldCloseCargoPanel();
+
+  const createPanel = document.getElementById('createCargoPanel');
+  const createOpen = createPanel && createPanel.style.display === 'block';
+
+  if (!createOpen) {
+    showTopMapButtons();
+  }
+};
+
+const oldToggleCreateCargoPanelFixed = window.toggleCreateCargoPanelFixed;
+window.toggleCreateCargoPanelFixed = function() {
+  if (oldToggleCreateCargoPanelFixed) oldToggleCreateCargoPanelFixed();
+
+  const createPanel = document.getElementById('createCargoPanel');
+  const createOpen = createPanel && createPanel.style.display === 'block';
+
+  if (createOpen) {
+    hideTopMapButtons();
+  } else {
+    showTopMapButtons();
+  }
+};
+
+const oldCloseCreateCargoPanel = window.closeCreateCargoPanel;
+window.closeCreateCargoPanel = function() {
+  if (oldCloseCreateCargoPanel) oldCloseCreateCargoPanel();
+  showTopMapButtons();
+};
+
+document.addEventListener('click', function() {
+  setTimeout(function() {
+    const createPanel = document.getElementById('createCargoPanel');
+    const listPanel = document.getElementById('panel');
+
+    const createOpen = createPanel && createPanel.style.display === 'block';
+    const listOpen = listPanel && listPanel.classList.contains('mobile-open');
+
+    if (createOpen || listOpen) {
+      hideTopMapButtons();
+    } else {
+      showTopMapButtons();
+    }
+  }, 50);
+});
+</script>
