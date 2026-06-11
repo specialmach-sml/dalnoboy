@@ -5,3 +5,9 @@ __pycache__/
 backups/
 *.tar.gz
 server/node_modules/
+
+# local backups
+*.bak
+*.bak_*
+web/*.bak_*
+web/map.html.bak_*
