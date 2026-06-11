@@ -778,12 +778,12 @@ async function findPickupAddress() {
   if (!point) return;
 
   pickupPoint = L.latLng(point.lat, point.lon);
-  document.getElementById('pickupAddress').value = point.name;
+  document.getElementById('pickupAddress').value = address;
 
   if (pickupMarker) map.removeLayer(pickupMarker);
   pickupMarker = L.marker(pickupPoint, { draggable: true })
     .addTo(map)
-    .bindPopup('📦 Загрузка<br>' + escapeHtml(point.name))
+    .bindPopup('📦 Загрузка<br>' + escapeHtml(address))
     .openPopup();
 
   pickupMarker.on('dragend', function(ev) {
@@ -806,12 +806,12 @@ async function findDropoffAddress() {
   if (!point) return;
 
   dropoffPoint = L.latLng(point.lat, point.lon);
-  document.getElementById('dropoffAddress').value = point.name;
+  document.getElementById('dropoffAddress').value = address;
 
   if (dropoffMarker) map.removeLayer(dropoffMarker);
   dropoffMarker = L.marker(dropoffPoint, { draggable: true })
     .addTo(map)
-    .bindPopup('🏁 Выгрузка<br>' + escapeHtml(point.name))
+    .bindPopup('🏁 Выгрузка<br>' + escapeHtml(address))
     .openPopup();
 
   dropoffMarker.on('dragend', function(ev) {
