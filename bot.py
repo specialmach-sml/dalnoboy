@@ -819,7 +819,7 @@ async def truck_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 body_type=$2,
                 capacity_tons=$3,
                 volume_m3=$4,
-                free_weight_kg=$3 * 1000,
+                free_weight_kg=$3::numeric * 1000,
                 free_volume_m3=$4,
                 allow_partial_load=true,
                 comment=$5,
@@ -851,7 +851,7 @@ async def truck_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 comment,
                 status
             )
-            VALUES (1,$1,$2,$3,$4,$5,$4 * 1000,$5,true,$6,'active')
+            VALUES ($1,$2,$3,$4,$5,$4::numeric * 1000,$5,true,$6,'active')
             RETURNING id
         """,
             user_id,
