@@ -968,6 +968,7 @@ let truckMarkers = [];
 let truckMarkersById = {};
 let trucksVisible = true;
 let selectedCargoId = null;
+let selectedCargoPopupMarker = null;
 let lastCargoQuery = '';
 let autoRefreshEnabled = false;
 let autoRefreshTimer = null;
@@ -1082,21 +1083,50 @@ function addCargoMarkerLive(c) {
 
 function selectCargo(cargoId, moveMap) {
   selectedCargoId = cargoId;
+
   document.querySelectorAll('.cargo-card').forEach(el => {
-    if (String(el.dataset.id) === String(cargoId)) el.classList.add('selected');
-    else el.classList.remove('selected');
+    if (String(el.dataset.id) === String(cargoId)) {
+      el.classList.add('selected');
+    } else {
+      el.classList.remove('selected');
+    }
   });
 
   const marker = cargoMarkers.find(m => String(m.cargoId) === String(cargoId));
-  if (marker && moveMap) {
-    const pos = marker.getLatLng();
-    map.setView(pos, Math.max(map.getZoom(), 10));
-    marker.openPopup();
-  
-    if (window.innerWidth <= 900 && typeof closeCargoPanel === 'function') {
-      closeCargoPanel();
-    }
-}
+
+  if (!marker || !moveMap) {
+    return;
+  }
+
+  if (window.innerWidth <= 900 && typeof closeCargoPanel === 'function') {
+    closeCargoPanel();
+  }
+
+  const pos = marker.getLatLng();
+
+  let popupHtml = '';
+
+  try {
+    popupHtml = marker.getPopup().getContent();
+  } catch (e) {
+    popupHtml = '📦 Груз #' + cargoId;
+  }
+
+  map.setView(pos, 15, {
+    animate: true
+  });
+
+  setTimeout(() => {
+    L.popup({
+      maxWidth: 320,
+      closeButton: true,
+      autoClose: true,
+      closeOnClick: true
+    })
+      .setLatLng(pos)
+      .setContent(popupHtml)
+      .openOn(map);
+  }, 500);
 }
 
 function getCargoArray(data) {
