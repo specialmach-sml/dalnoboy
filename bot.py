@@ -5659,7 +5659,10 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     InlineKeyboardButton("📦 Загружен", callback_data=f"deal_loaded_{r['id']}")
                 ],
                 [
-                    InlineKeyboardButton("🏁 Доставлен", callback_data=f"deal_delivered_{r['id']}"),
+                    InlineKeyboardButton("🚛 В пути", callback_data=f"deal_in_progress_{r['id']}"),
+                    InlineKeyboardButton("🏁 Доставлен", callback_data=f"deal_delivered_{r['id']}")
+                ],
+                [
                     InlineKeyboardButton("❌ Отменить", callback_data=f"deal_cancelled_{r['id']}")
                 ],
                 [
