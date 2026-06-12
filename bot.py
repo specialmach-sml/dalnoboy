@@ -9772,6 +9772,9 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
+    if q.data == "menu_profile":
+        return await profile(fake_update, context)
+
     if q.data == "menu_cargo":
         return await cargo(fake_update, context)
     if q.data == "menu_mycargo":
