@@ -137,48 +137,54 @@ def main_reply_keyboard(role="carrier", verified=True, roles=None):
 
     # Админ видит всё
     if role == "admin" or "admin" in roles:
-        rows += [
+        rows = [
             ["🗺 Карта"],
             ["➕ Груз", "📦 Грузы"],
             ["📋 Мои грузы", "🚚 Машина"],
-            ["📨 Отклики"],
+            ["📍 Рядом", "🧩 Догрузы"],
+            ["🟢 Выгодные", "📨 Отклики"],
             ["🤝 Сделки", "🛡 Админ"],
             ["💳 Тарифы", "⚙️ Настройки"],
             ["👤 Профиль"]
         ]
 
-    # Перевозчик видит только перевозчика
-    elif role == "carrier" or role == "driver":
-        rows += [
+    # Грузоотправитель
+    elif role == "shipper" or "shipper" in roles:
+        rows = [
             ["🗺 Карта"],
-            ["📦 Грузы", "🚚 Машина"],
-            ["📍 Рядом", "🟢 Выгодные"],
-            ["📨 Отклики"],
-            ["👤 Профиль", "⚙️ Настройки"],
-            ["💳 Тарифы", "➕ Запросить роль"]
-        ]
-
-    # Грузоотправитель видит только грузоотправителя
-    elif role == "shipper":
-        rows += [
-            ["➕ Груз", "📋 Мои грузы"],
-            ["📨 Отклики", "🤝 Сделки"],
-            ["👤 Профиль", "⚙️ Настройки"],
-            ["💳 Тарифы", "➕ Запросить роль"]
-        ]
-
-    # Диспетчер видит диспетчерский набор
-    elif role == "dispatcher":
-        rows += [
-            ["➕ Груз", "📋 Мои грузы"],
-            ["🚚 Машины", "📨 Отклики"],
+            ["➕ Груз", "📦 Грузы"],
+            ["📋 Мои грузы", "📨 Отклики"],
             ["🤝 Сделки"],
             ["👤 Профиль", "⚙️ Настройки"],
-            ["💳 Тарифы", "➕ Запросить роль"]
+            ["💳 Тарифы"]
+        ]
+
+    # Диспетчер
+    elif role == "dispatcher" or "dispatcher" in roles:
+        rows = [
+            ["🗺 Карта"],
+            ["➕ Груз", "📦 Грузы"],
+            ["📋 Мои грузы", "🚚 Машины"],
+            ["📨 Отклики", "🤝 Сделки"],
+            ["👥 Водители"],
+            ["👤 Профиль", "⚙️ Настройки"],
+            ["💳 Тарифы"]
+        ]
+
+    # Перевозчик
+    elif role == "carrier" or role == "driver" or "carrier" in roles or "driver" in roles:
+        rows = [
+            ["🗺 Карта"],
+            ["📦 Грузы", "🚚 Машина"],
+            ["📍 Рядом", "🧩 Догрузы"],
+            ["🟢 Выгодные"],
+            ["📨 Отклики", "🤝 Сделки"],
+            ["👤 Профиль", "⚙️ Настройки"],
+            ["💳 Тарифы"]
         ]
 
     else:
-        rows += [
+        rows = [
             ["👤 Профиль", "⚙️ Настройки"],
             ["💳 Тарифы", "➕ Запросить роль"]
         ]
@@ -198,47 +204,6 @@ def main_reply_keyboard(role="carrier", verified=True, roles=None):
         is_persistent=True
     )
 
-
-
-def cargo_type_name(v):
-    mapping = {
-        "full": "🚛 Полная загрузка",
-        "partial": "📦 Догруз",
-        "parcel": "📬 Посылка",
-        "mail": "📄 Документы/почта",
-        "pallet": "📦 Паллеты"
-    }
-    return mapping.get(v or "full", v or "full")
-
-def format_price(v):
-    if v is None:
-        return "-"
-    try:
-        return f"{int(float(v)):,}".replace(",", " ")
-    except:
-        return str(v)
-
-def human_status(v):
-    mapping = {
-        "open": "🟢 Открыт",
-        "pending": "🟡 Ожидает",
-        "active": "🤝 Сделка создана",
-        "to_pickup": "🚚 Еду на загрузку",
-        "loading": "📍 На загрузке",
-        "loaded": "📦 Загружен",
-        "in_progress": "🚚 В пути",
-        "delivered": "🏁 Доставлен",
-        "done": "✅ Завершён",
-        "closed": "❌ Закрыт",
-        "cancelled": "❌ Отменён"
-    }
-    return mapping.get(v, v)
-
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
 
 async def init_db():
     global DB
@@ -619,13 +584,13 @@ async def subscribe(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-async def truck(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def settruck_quick(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
     if len(context.args) < 2:
         await update.message.reply_text(
             "🚚 Используй так:\n"
-            "/truck Москва тент\n\n"
+            "/settruck Москва тент\n\n"
             "Первое слово — город, дальше — тип кузова."
         )
         return
@@ -854,6 +819,9 @@ async def truck_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 body_type=$2,
                 capacity_tons=$3,
                 volume_m3=$4,
+                free_weight_kg=$3 * 1000,
+                free_volume_m3=$4,
+                allow_partial_load=true,
                 comment=$5,
                 status='active'
             WHERE id=$6
@@ -877,10 +845,13 @@ async def truck_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 body_type,
                 capacity_tons,
                 volume_m3,
+                free_weight_kg,
+                free_volume_m3,
+                allow_partial_load,
                 comment,
                 status
             )
-            VALUES (1,$1,$2,$3,$4,$5,$6,'active')
+            VALUES (1,$1,$2,$3,$4,$5,$4 * 1000,$5,true,$6,'active')
             RETURNING id
         """,
             user_id,
@@ -899,6 +870,9 @@ async def truck_comment(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📦 Кузов: {data['body_type']}\n"
         f"⚖️ Тоннаж: {data['capacity_tons']} т\n"
         f"📦 Объём: {data['volume_m3']} м³\n"
+        f"🧩 Догрузы: разрешены\n"
+        f"⚖️ Свободно: {data['capacity_tons'] * 1000} кг\n"
+        f"📦 Свободный объём: {data['volume_m3']} м³\n"
         f"📝 Комментарий: {data['comment'] or '-'}"
     )
 
@@ -1030,7 +1004,10 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             location_updated_at,
             photo_file_id,
             min_rate_per_km,
-            search_radius_km
+            search_radius_km,
+            free_weight_kg,
+            free_volume_m3,
+            allow_partial_load
         FROM trucks
         WHERE driver_id=$1
         ORDER BY id DESC
@@ -1057,6 +1034,10 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("📦 Объём", callback_data="truck_edit_volume_m3"),
             InlineKeyboardButton("📝 Описание", callback_data="truck_edit_comment")
         ],
+        [InlineKeyboardButton(
+            "🧩 Догрузы: вкл" if truck["allow_partial_load"] else "🧩 Догрузы: выкл",
+            callback_data=f"truck_partial_{truck['id']}"
+        )],
         [InlineKeyboardButton("📷 Фото машины", callback_data="truck_photo")],
         [InlineKeyboardButton("🔁 Обновить в поиске", callback_data=f"truck_refresh_{truck['id']}")],
         [InlineKeyboardButton("📍 Обновить GEO вручную", callback_data="truck_geo")],
@@ -1077,6 +1058,9 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"📦 Кузов: {truck['body_type'] or 'Не указан'}\n"
         f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\n"
         f"📦 Объём: {truck['volume_m3'] or '-'} м³\n"
+        f"🧩 Догрузы: {'разрешены' if truck['allow_partial_load'] else 'выключены'}\n"
+        f"⚖️ Свободно: {truck['free_weight_kg'] or 0} кг\n"
+        f"📦 Свободный объём: {truck['free_volume_m3'] or 0} м³\n"
         f"💰 Мин. ставка: {truck['min_rate_per_km'] or '-'} ₽/км\n"
         f"🛣 Радиус поиска: {truck['search_radius_km'] or '-'} км\n"
         f"🌐 GEO: {(str(round(float(truck['latitude']), 4)) + ', ' + str(round(float(truck['longitude']), 4))) if truck['latitude'] and truck['longitude'] else 'не найдено'}\n"
@@ -1098,6 +1082,41 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+
+
+
+async def truck_partial_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    user_id = await ensure_user(q.from_user)
+    truck_id = int(q.data.split("_")[2])
+
+    truck = await DB.fetchrow("""
+        SELECT id, driver_id, allow_partial_load
+        FROM trucks
+        WHERE id=$1
+    """, truck_id)
+
+    if not truck:
+        await q.message.reply_text("❌ Машина не найдена")
+        return
+
+    if truck["driver_id"] != user_id:
+        await q.message.reply_text("⛔ Это не ваша машина")
+        return
+
+    new_value = not bool(truck["allow_partial_load"])
+
+    await DB.execute("""
+        UPDATE trucks
+        SET allow_partial_load=$1
+        WHERE id=$2
+    """, new_value, truck_id)
+
+    await q.message.reply_text(
+        "✅ Догрузы включены" if new_value else "✅ Догрузы выключены"
+    )
 
 
 async def truck_add_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -2229,7 +2248,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{cargo_id}")],
                     [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{cargo_id}")],
                     [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{cargo_id}")],
-                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru?v=143"))]
+                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru/map.html?v=213"))]
                 ])
             )
             return
@@ -2311,6 +2330,70 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🚛 Добро пожаловать в Dalnoboy Bros!",
         reply_markup=main_reply_keyboard(role, verified, roles)
     )
+
+
+
+def format_price(value):
+    """
+    Красивый формат цены:
+    15000 -> 15 000
+    None -> 0
+    """
+    try:
+        if value is None:
+            return "0"
+
+        n = float(value)
+
+        if n.is_integer():
+            return f"{int(n):,}".replace(",", " ")
+
+        return f"{n:,.2f}".replace(",", " ").replace(".00", "")
+    except Exception:
+        return str(value or "0")
+
+
+
+
+def cargo_type_name(value):
+    """
+    Человекочитаемый тип груза.
+    """
+    value = (value or "full").strip().lower()
+
+    names = {
+        "full": "Полная загрузка",
+        "partial": "Догруз",
+        "parcel": "Посылка",
+        "mail": "Документы",
+    }
+
+    return names.get(value, value)
+
+
+
+
+def human_status(value):
+    """
+    Человекочитаемый статус груза/сделки.
+    """
+    mapping = {
+        "open": "🟢 Открыт",
+        "pending": "🟡 Ожидает",
+        "active": "🤝 Сделка создана",
+        "driver_assigned": "👤 Водитель назначен",
+        "to_pickup": "🚚 Еду на загрузку",
+        "loading": "📍 На загрузке",
+        "loaded": "📦 Загружен",
+        "in_progress": "🚚 В пути",
+        "delivered": "🏁 Доставлен",
+        "done": "✅ Завершён",
+        "closed": "✅ Закрыт",
+        "cancelled": "❌ Отменён",
+        "deleted": "🗑 Удалён"
+    }
+    return mapping.get(value, value or "-")
+
 
 async def cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     rows = await DB.fetch("""
@@ -5363,7 +5446,15 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             r.truck_id,
             u.telegram_id,
             c.from_city,
-            c.to_city
+            c.to_city,
+            c.price_amount,
+            c.price_currency,
+            c.weight_kg,
+            c.volume_m3,
+            c.places_count,
+            c.cargo_type,
+            c.distance_km,
+            c.rate_per_km
         FROM responses r
         JOIN users u ON u.id = r.driver_id
         JOIN cargo c ON c.id = r.cargo_id
@@ -5408,12 +5499,39 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             LIMIT 1
         """, response_id)
 
+        actor = await DB.fetchrow("""
+            SELECT id
+            FROM users
+            WHERE telegram_id=$1
+            LIMIT 1
+        """, q.from_user.id)
+
+        history_exists = await DB.fetchval("""
+            SELECT COUNT(*)
+            FROM deal_status_history
+            WHERE deal_id=$1
+        """, deal_id)
+
+        if history_exists == 0:
+            await DB.execute("""
+                INSERT INTO deal_status_history (deal_id, status, created_by)
+                VALUES
+                    ($1, 'active', $2),
+                    ($1, 'driver_assigned', $2)
+            """, deal_id, actor["id"] if actor else None)
+
         try:
             await context.bot.send_message(
                 chat_id=response["telegram_id"],
                 text=(
-                    f"✅ Ваш отклик принят!\n"
-                    f"📦 Груз #{response['cargo_id']}: {response['from_city']} → {response['to_city']}\n"
+                    f"✅ Ваш отклик принят!\n\n"
+                    f"📦 Груз #{response['cargo_id']}\n"
+                    f"🚩 {response['from_city']} → {response['to_city']}\n"
+                    f"⚖️ {response['weight_kg'] or 0} кг\n"
+                    f"📦 {response['volume_m3'] or 0} м³\n"
+                    f"🔢 {response['places_count'] or 0} мест\n"
+                    f"💰 {format_price(response['price_amount'])} {response['price_currency'] or 'RUB'}\n"
+                    f"💵 {response['rate_per_km'] or '-'} ₽/км\n\n"
                     f"🤝 Сделка #{deal_id} создана"
                 ),
                 reply_markup=InlineKeyboardMarkup([
@@ -5438,7 +5556,13 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text(
             (
                 f"✅ Отклик #{response_id} принят\n\n"
-                f"📦 {response['from_city']} → {response['to_city']}\n"
+                f"📦 Груз #{response['cargo_id']}\n"
+                f"🚩 {response['from_city']} → {response['to_city']}\n"
+                f"⚖️ {response['weight_kg'] or 0} кг\n"
+                f"📦 {response['volume_m3'] or 0} м³\n"
+                f"🔢 {response['places_count'] or 0} мест\n"
+                f"💰 {format_price(response['price_amount'])} {response['price_currency'] or 'RUB'}\n"
+                f"💵 {response['rate_per_km'] or '-'} ₽/км\n\n"
                 f"💬 Переговоры #{deal_id} создана"
             ),
             reply_markup=InlineKeyboardMarkup([
@@ -5479,6 +5603,11 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             c.to_city,
             c.price_amount,
             c.price_currency,
+            c.weight_kg,
+            c.volume_m3,
+            c.places_count,
+            c.distance_km,
+            c.rate_per_km,
             c.created_by AS owner_id,
             t.id AS truck_id,
             t.driver_id AS driver_id,
@@ -5504,9 +5633,15 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for r in rows:
         text = (
-            f"💬 Переговоры #{r['id']}\n"
-            f"📦 Груз #{r['cargo_id']}: {r['from_city']} → {r['to_city']}\n"
+            f"🤝 Сделка #{r['id']}\n\n"
+            f"📦 Груз #{r['cargo_id']}\n"
+            f"🚩 {r['from_city']} → {r['to_city']}\n"
+            f"⚖️ {r['weight_kg'] or 0} кг\n"
+            f"📦 {r['volume_m3'] or 0} м³\n"
+            f"🔢 {r['places_count'] or 0} мест\n"
             f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
+            f"📏 {r['distance_km'] or '-'} км\n"
+            f"💵 {r['rate_per_km'] or '-'} ₽/км\n\n"
             f"🚚 Машина #{r['truck_id']}: {r['current_city']}, {r['body_type']}\n"
             f"💬 Сообщений: {r['messages_count']}\n"
             + ("🚩 Жалоба отправлена\n" if r["dispute"] else "")
@@ -5530,26 +5665,14 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 [
                     InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
                     InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
-                ],
-                [InlineKeyboardButton("📄 Отчёт", callback_data=f"deal_report_{r['id']}")],
-                [
-                    InlineKeyboardButton("📄 Документы", callback_data=f"deal_docs_{r['id']}"),
-                    InlineKeyboardButton("📸 Фото загрузки", callback_data=f"deal_loadphoto_{r['id']}")
-                ],
-                [InlineKeyboardButton("📸 Фото выгрузки", callback_data=f"deal_unloadphoto_{r['id']}")]
+                ]
             ]
         else:
             buttons = [
                 [
                     InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
                     InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
-                ],
-                [InlineKeyboardButton("📄 Отчёт", callback_data=f"deal_report_{r['id']}")],
-                [
-                    InlineKeyboardButton("📄 Документы", callback_data=f"deal_docs_{r['id']}"),
-                    InlineKeyboardButton("📸 Фото загрузки", callback_data=f"deal_loadphoto_{r['id']}")
-                ],
-                [InlineKeyboardButton("📸 Фото выгрузки", callback_data=f"deal_unloadphoto_{r['id']}")],
+                ]
             ]
 
         buttons.append([
@@ -5559,8 +5682,7 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         if r["status"] in ("done", "delivered"):
             buttons.append([
-                InlineKeyboardButton("✅ Закрыть рейс", callback_data=f"deal_closed_{r['id']}"),
-                InlineKeyboardButton("📄 Акт перевозки", callback_data=f"deal_act_{r['id']}")
+                InlineKeyboardButton("✅ Закрыть рейс", callback_data=f"deal_closed_{r['id']}")
             ])
             buttons.append([
                 InlineKeyboardButton("⭐ Оценить", callback_data=f"review_{r['id']}")
@@ -6174,7 +6296,8 @@ async def deal_timeline_button(update: Update, context: ContextTypes.DEFAULT_TYP
         return
 
     labels = {
-        "active": "🟢 Активная",
+        "active": "🟢 Сделка создана",
+        "driver_assigned": "👤 Водитель назначен",
         "to_pickup": "🚚 Еду на загрузку",
         "loading": "📍 На загрузке",
         "loaded": "📦 Загружен",
@@ -6191,7 +6314,7 @@ async def deal_timeline_button(update: Update, context: ContextTypes.DEFAULT_TYP
         label = labels.get(r["status"], r["status"])
         who = r["full_name"] or "Пользователь"
         dt = r["created_at"].strftime("%d.%m %H:%M")
-        text += f"{dt} — {label}\\n👤 {who}\\n\\n"
+        text += f"{dt} — {label}\n👤 {who}\n\n"
 
     await q.message.reply_text(text)
 
@@ -6731,7 +6854,8 @@ async def dealtimeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     labels = {
-        "active": "🟢 Активная",
+        "active": "🟢 Сделка создана",
+        "driver_assigned": "👤 Водитель назначен",
         "to_pickup": "🚚 Еду на загрузку",
         "loading": "📍 На загрузке",
         "loaded": "📦 Загружен",
@@ -6747,7 +6871,7 @@ async def dealtimeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
         label = labels.get(r["status"], r["status"])
         who = r["full_name"] or "Пользователь"
         dt = r["created_at"].strftime("%d.%m %H:%M")
-        text += f"{dt} — {label}\\n👤 {who}\\n\\n"
+        text += f"{dt} — {label}\n👤 {who}\n\n"
 
     await update.message.reply_text(text)
 
@@ -6828,13 +6952,15 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         """, cargo_status, deal["cargo_id"])
 
     labels = {
-        "active": "🟢 Активная",
+        "active": "🟢 Сделка создана",
+        "driver_assigned": "👤 Водитель назначен",
         "to_pickup": "🚚 Еду на загрузку",
         "loading": "📍 На загрузке",
         "loaded": "📦 Загружен",
         "in_progress": "🚚 В пути",
         "done": "✅ Доставлено",
         "delivered": "🏁 Доставлен",
+        "closed": "✅ Рейс закрыт",
         "cancelled": "❌ Отменено"
     }
 
@@ -7581,6 +7707,31 @@ async def settings_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def truck_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
+    user = await DB.fetchrow("""
+        SELECT COALESCE(role, 'carrier') AS role
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    role = user["role"] if user else "carrier"
+
+    if role == "shipper":
+        text = (
+            "⚙️ Настройки грузоотправителя\n\n"
+            "🔔 Уведомления об откликах: включены\n"
+            "🤝 Уведомления по сделкам: включены\n"
+            "💬 Уведомления чата: включены"
+        )
+
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("🔔 Уведомления ON/OFF", callback_data="settings_shipper_notify")],
+            [InlineKeyboardButton("📦 Мои грузы", callback_data="menu_mycargo")],
+            [InlineKeyboardButton("🤝 Сделки", callback_data="menu_deals")]
+        ])
+
+        await update.message.reply_text(text, reply_markup=kb)
+        return
+
     truck = await DB.fetchrow("""
         SELECT
             search_radius_km,
@@ -7897,7 +8048,14 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
 
     truck = await DB.fetchrow("""
-        SELECT latitude, longitude, min_rate_per_km, search_radius_km
+        SELECT
+            latitude,
+            longitude,
+            min_rate_per_km,
+            search_radius_km,
+            free_weight_kg,
+            free_volume_m3,
+            allow_partial_load
         FROM trucks
         WHERE driver_id=$1
         ORDER BY id DESC
@@ -7942,6 +8100,10 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
             c.price_amount,
             c.distance_km,
             c.rate_per_km,
+            c.weight_kg,
+            c.volume_m3,
+            c.places_count,
+            c.cargo_type,
             c.load_latitude,
             c.load_longitude,
             COALESCE(u.plan_type, 'free') AS owner_plan
@@ -7965,6 +8127,23 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         if dist is not None and dist <= radius:
+            cargo_type = r["cargo_type"] or "full"
+
+            if cargo_type in ("partial", "parcel", "mail", "pallet"):
+                if not truck["allow_partial_load"]:
+                    continue
+
+                cargo_weight = float(r["weight_kg"] or 0)
+                cargo_volume = float(r["volume_m3"] or 0)
+                free_weight = float(truck["free_weight_kg"] or 0)
+                free_volume = float(truck["free_volume_m3"] or 0)
+
+                if cargo_weight > 0 and free_weight > 0 and cargo_weight > free_weight:
+                    continue
+
+                if cargo_volume > 0 and free_volume > 0 and cargo_volume > free_volume:
+                    continue
+
             found.append((dist, r))
 
     plan_priority = {
@@ -8011,6 +8190,8 @@ async def nearby(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📦 Груз рядом\n\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
             f"💰 {format_price(r['price_amount'])} ₽\n"
+            f"⚖️ {r['weight_kg'] or 0} кг | 📦 {r['volume_m3'] or 0} м³ | 🔢 {r['places_count'] or 0}\n"
+            f"🚚 {cargo_type_name(r['cargo_type'])}\n"
             f"📍 {dist} км до загрузки\n"
             f"{econ}",
             reply_markup=InlineKeyboardMarkup([
@@ -8125,7 +8306,18 @@ async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if cargo_id:
         cargo = await DB.fetchrow("""
-            SELECT id, created_by
+            SELECT
+                id,
+                created_by,
+                from_city,
+                to_city,
+                price_amount,
+                price_currency,
+                weight_kg,
+                volume_m3,
+                places_count,
+                distance_km,
+                rate_per_km
             FROM cargo
             WHERE id=$1
         """, cargo_id)
@@ -8141,12 +8333,61 @@ async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             WHERE id=$3
         """, lat, lon, cargo_id)
 
+        auto_items = []
+        sent_count = 0
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(
+                    f"http://localhost:5000/api/cargo/{cargo_id}/available-trucks",
+                    timeout=8
+                ) as resp:
+                    auto_data = await resp.json()
+                    auto_items = auto_data.get("items", []) if auto_data.get("success") else []
+
+            for m in auto_items[:10]:
+                driver_id = int(m.get("driver_id"))
+                driver_tg = await DB.fetchval(
+                    "SELECT telegram_id FROM users WHERE id=$1",
+                    driver_id
+                )
+
+                if not driver_tg or driver_tg == update.effective_user.id:
+                    continue
+
+                await context.bot.send_message(
+                    chat_id=driver_tg,
+                    text=(
+                        f"🔥 Новый груз рядом\n\n"
+                        f"📦 Груз #{cargo_id}\n"
+                        f"🚩 {cargo['from_city']} → {cargo['to_city']}\n"
+                        f"⚖️ {cargo['weight_kg'] or 0} кг\n"
+                        f"📦 {cargo['volume_m3'] or 0} м³\n"
+                        f"🔢 {cargo['places_count'] or 0} мест\n"
+                        f"💰 {format_price(cargo['price_amount'])} {cargo['price_currency'] or 'RUB'}\n"
+                        f"📏 {cargo['distance_km'] or '-'} км\n"
+                        f"💵 {cargo['rate_per_km'] or '-'} ₽/км\n\n"
+                        f"🚚 До загрузки: {m.get('distance_km', '-')} км\n"
+                        f"🔥 Совпадение: {m.get('match_score', 0)}%"
+                    ),
+                    reply_markup=InlineKeyboardMarkup([
+                        [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{cargo_id}")]
+                    ])
+                )
+
+                sent_count += 1
+
+        except Exception as e:
+            logging.warning(f"auto matching after cargo geo failed: {e}")
+
         access = await get_user_roles(update.effective_user.id)
 
         await update.message.reply_text(
             f"✅ Геолокация загрузки сохранена для груза #{cargo_id}\n"
             f"Широта: {round(lat, 4)}\n"
-            f"Долгота: {round(lon, 4)}",
+            f"Долгота: {round(lon, 4)}\n\n"
+            f"🎯 Подходящих машин найдено: {len(auto_items)}\n"
+            f"🔔 Уведомлений отправлено: {sent_count}",
             reply_markup=main_reply_keyboard(
                 access["primary_role"],
                 access["verified"],
@@ -8309,7 +8550,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [
                 InlineKeyboardButton(
                     "🗺 Открыть карту",
-                    web_app=WebAppInfo(url="https://dalnoboybros.ru?v=143")
+                    web_app=WebAppInfo(url="https://dalnoboybros.ru/map.html?v=213")
                 )
             ]
         ])
@@ -9808,7 +10049,7 @@ def main():
 
     truck_handler = ConversationHandler(
         entry_points=[
-            CommandHandler("truck", truck_start),
+            CommandHandler("newtruck", truck_start),
             MessageHandler(filters.Regex("^🚚 Машина$"), truck_start),
         ],
         states={
@@ -9833,7 +10074,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, review_comment_text), group=-5)
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, deal_document_message), group=-1)
     app.add_handler(MessageHandler(filters.PHOTO, truck_photo_message))
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню|📝 Подать заявку|🤝 Сделки|➕ Запросить роль|🛡 Админ)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🧩 Догрузы|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню|📝 Подать заявку|🤝 Сделки|➕ Запросить роль|🛡 Админ)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, tariff_price_text))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, truck_edit_message))
@@ -9909,7 +10150,8 @@ def main():
     app.add_handler(CommandHandler("whoami", whoami))
     app.add_handler(CommandHandler("myid", myid))
     app.add_handler(CommandHandler("plans", plans))
-    app.add_handler(CommandHandler("truck", truck))
+    app.add_handler(CommandHandler("truck", mytruck))
+    app.add_handler(CommandHandler("settruck", settruck_quick))
     app.add_handler(CommandHandler("location", location_cmd))
     app.add_handler(CommandHandler("cargogeo", cargogeo))
     app.add_handler(CommandHandler("nearby", nearby))
@@ -9968,6 +10210,7 @@ def main():
     app.add_handler(CallbackQueryHandler(truck_geo_button, pattern="^truck_geo$"))
     app.add_handler(CallbackQueryHandler(truck_refresh, pattern="^truck_refresh_"))
     app.add_handler(CallbackQueryHandler(truck_photo_button, pattern="^truck_photo$"))
+    app.add_handler(CallbackQueryHandler(truck_partial_toggle, pattern="^truck_partial_"))
     app.add_handler(CallbackQueryHandler(truck_hide, pattern="^truck_hide_"))
     app.add_handler(CallbackQueryHandler(truck_deal_button, pattern="^truck_deal_"))
     app.add_handler(CallbackQueryHandler(create_deal_button, pattern="^create_deal_"))

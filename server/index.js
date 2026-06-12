@@ -252,6 +252,10 @@ app.get("/api/cargo/open", async (req, res) => {
         price_currency,
         distance_km,
         rate_per_km,
+        weight_kg,
+        volume_m3,
+        places_count,
+        cargo_type,
         load_latitude,
         load_longitude,
         unload_latitude,
@@ -412,7 +416,10 @@ app.post("/api/cargo/create", async (req, res) => {
       unload_longitude,
       distance_km,
       weight_tons,
-      volume_m3
+      weight_kg,
+      volume_m3,
+      places_count,
+      cargo_type
     } = req.body;
 
     let createdBy = null;
@@ -432,6 +439,15 @@ app.post("/api/cargo/create", async (req, res) => {
     const dist = Number(distance_km || 0);
     const rate = dist > 0 ? Math.round((price / dist) * 100) / 100 : null;
 
+    const weightKg = Number(weight_kg || 0);
+    const weightTons = weight_tons !== undefined && weight_tons !== null
+      ? Number(weight_tons || 0)
+      : (weightKg > 0 ? Math.round((weightKg / 1000) * 1000) / 1000 : 0);
+
+    const volume = Number(volume_m3 || 0);
+    const places = Number(places_count || 0);
+    const type = cargo_type || 'full';
+
     const q = await pool.query(`
       INSERT INTO cargo (
         from_city,
@@ -445,12 +461,15 @@ app.post("/api/cargo/create", async (req, res) => {
         distance_km,
         rate_per_km,
         weight_tons,
+        weight_kg,
         volume_m3,
+        places_count,
+        cargo_type,
         created_by,
         status
       )
       VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'open'
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'open'
       )
       RETURNING
         id,
@@ -466,7 +485,10 @@ app.post("/api/cargo/create", async (req, res) => {
         unload_latitude,
         unload_longitude,
         weight_tons,
+        weight_kg,
         volume_m3,
+        places_count,
+        cargo_type,
         created_by,
         status
     `, [
@@ -480,8 +502,11 @@ app.post("/api/cargo/create", async (req, res) => {
       unload_longitude,
       dist,
       rate,
-      Number(weight_tons || 0) || null,
-      Number(volume_m3 || 0) || null,
+      weightTons,
+      weightKg,
+      volume,
+      places,
+      type,
       createdBy
     ]);
 
@@ -562,8 +587,8 @@ app.get("/api/trucks/available", async (req, res) => {
         COALESCE(u.plan_type, 'free') AS plan_type,
         (
           40
-          + CASE WHEN COALESCE(t.available_tons, 0) >= COALESCE($1, 0) THEN 20 ELSE 0 END
-          + CASE WHEN COALESCE(t.available_volume_m3, 0) >= COALESCE($2, 0) THEN 20 ELSE 0 END
+          + CASE WHEN COALESCE(t.available_tons, 0) >= COALESCE($1::numeric, 0) THEN 20 ELSE 0 END
+          + CASE WHEN COALESCE(t.available_volume_m3, 0) >= COALESCE($2::numeric, 0) THEN 20 ELSE 0 END
           + CASE WHEN t.location_updated_at > now() - interval '2 hours' THEN 10 ELSE 0 END
           + CASE WHEN COALESCE(u.plan_type, 'free') IN ('pro','company') THEN 10 ELSE 0 END
         ) AS match_score
@@ -647,8 +672,8 @@ app.get("/api/trucks/available", async (req, res) => {
         COALESCE(u.plan_type, 'free') AS plan_type,
         (
           40
-          + CASE WHEN COALESCE(t.available_tons, 0) >= COALESCE($1, 0) THEN 20 ELSE 0 END
-          + CASE WHEN COALESCE(t.available_volume_m3, 0) >= COALESCE($2, 0) THEN 20 ELSE 0 END
+          + CASE WHEN COALESCE(t.available_tons, 0) >= COALESCE($1::numeric, 0) THEN 20 ELSE 0 END
+          + CASE WHEN COALESCE(t.available_volume_m3, 0) >= COALESCE($2::numeric, 0) THEN 20 ELSE 0 END
           + CASE WHEN t.location_updated_at > now() - interval '2 hours' THEN 10 ELSE 0 END
           + CASE WHEN COALESCE(u.plan_type, 'free') IN ('pro','company') THEN 10 ELSE 0 END
         ) AS match_score
@@ -764,15 +789,15 @@ app.get("/api/cargo/:id/available-trucks", async (req, res) => {
                 WHEN t.location_updated_at > now() - interval '2 hours' THEN 8
                 ELSE 0
               END
-            + CASE WHEN COALESCE(t.capacity_tons, 0) >= COALESCE($1, 0) THEN 15 ELSE 0 END
-            + CASE WHEN COALESCE(t.volume_m3, 0) >= COALESCE($2, 0) THEN 15 ELSE 0 END
+            + CASE WHEN COALESCE(t.capacity_tons, 0) >= COALESCE($1::numeric, 0) THEN 15 ELSE 0 END
+            + CASE WHEN COALESCE(t.volume_m3, 0) >= COALESCE($2::numeric, 0) THEN 15 ELSE 0 END
             + CASE WHEN COALESCE(u.plan_type, 'free') IN ('pro','company') THEN 10 ELSE 0 END
             + CASE
-                WHEN COALESCE($5, 0) > 0
+                WHEN COALESCE($5::numeric, 0) > 0
                  AND COALESCE(t.min_rate_per_km, 0) > 0
-                 AND COALESCE($5, 0) >= COALESCE(t.min_rate_per_km, 0)
+                 AND COALESCE($5::numeric, 0) >= COALESCE(t.min_rate_per_km, 0)
                 THEN 20
-                WHEN COALESCE($5, 0) > 0
+                WHEN COALESCE($5::numeric, 0) > 0
                  AND COALESCE(t.min_rate_per_km, 0) = 0
                 THEN 8
                 ELSE 0
