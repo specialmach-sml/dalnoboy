@@ -5065,7 +5065,15 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
-    cargo_id = int(q.data.split("_")[1])
+    selected_truck_id = None
+
+    if q.data.startswith("truckrespond_"):
+        parts = q.data.split("_")
+        cargo_id = int(parts[1])
+        selected_truck_id = int(parts[2])
+    else:
+        cargo_id = int(q.data.split("_")[1])
+
     tg_user = q.from_user
     user_id = await ensure_user(tg_user)
 
@@ -5075,16 +5083,45 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await q.message.reply_text("❌ Груз не найден")
         return
 
-    truck = await DB.fetchrow("""
-        SELECT id FROM trucks
-        WHERE driver_id=$1
-        ORDER BY id DESC
-        LIMIT 1
-    """, user_id)
+    if selected_truck_id is not None:
+        truck = await DB.fetchrow("""
+            SELECT id
+            FROM trucks
+            WHERE id=$1 AND driver_id=$2
+        """, selected_truck_id, user_id)
 
-    if not truck:
-        await q.message.reply_text("❌ Нет машины у водителя")
-        return
+        if not truck:
+            await q.message.reply_text("❌ Машина не найдена или не ваша")
+            return
+    else:
+        trucks = await DB.fetch("""
+            SELECT id, current_city, body_type, capacity_tons, volume_m3
+            FROM trucks
+            WHERE driver_id=$1
+            ORDER BY id
+        """, user_id)
+
+        if not trucks:
+            await q.message.reply_text("🚚 Сначала добавьте машину через /newtruck")
+            return
+
+        if len(trucks) > 1:
+            buttons = []
+            for t in trucks:
+                buttons.append([
+                    InlineKeyboardButton(
+                        f"🚚 #{t['id']} — {t['body_type'] or '-'} / {t['capacity_tons'] or '-'} т / {t['volume_m3'] or '-'} м³",
+                        callback_data=f"truckrespond_{cargo_id}_{t['id']}"
+                    )
+                ])
+
+            await q.message.reply_text(
+                "🚚 Выберите машину для отклика:",
+                reply_markup=InlineKeyboardMarkup(buttons)
+            )
+            return
+
+        truck = trucks[0]
 
     existing = await DB.fetchrow("""
         SELECT id FROM responses
@@ -10364,6 +10401,7 @@ def main():
     app.add_handler(CallbackQueryHandler(cargo_restore, pattern="^cargo_restore_"))
     app.add_handler(CallbackQueryHandler(cargo_link, pattern="^cargo_link_"))
     app.add_handler(CallbackQueryHandler(cargo_share, pattern="^cargo_share_"))
+    app.add_handler(CallbackQueryHandler(respond, pattern="^truckrespond_"))
     app.add_handler(CallbackQueryHandler(respond, pattern="^cargo_"))
     app.add_handler(CallbackQueryHandler(response_action, pattern="^(accept|reject)_"))
     app.add_handler(CallbackQueryHandler(deal_closedispute_button, pattern="^deal_closedispute_"))
