@@ -1139,6 +1139,88 @@ async def mytrucks_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+
+
+async def truckinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if not context.args:
+        await update.message.reply_text(
+            "🚚 Укажите номер машины.\n\n"
+            "Пример:\n"
+            "/truckinfo 1"
+        )
+        return
+
+    try:
+        truck_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ Номер машины должен быть числом. Например: /truckinfo 1")
+        return
+
+    truck = await DB.fetchrow("""
+        SELECT
+            id,
+            current_city,
+            body_type,
+            capacity_tons,
+            volume_m3,
+            comment,
+            status,
+            created_at,
+            brand,
+            model,
+            plate_number,
+            latitude,
+            longitude,
+            location_updated_at,
+            photo_file_id,
+            min_rate_per_km,
+            search_radius_km,
+            free_weight_kg,
+            free_volume_m3,
+            allow_partial_load
+        FROM trucks
+        WHERE id=$1 AND driver_id=$2
+    """, truck_id, user_id)
+
+    if not truck:
+        await update.message.reply_text("❌ Машина не найдена или не принадлежит вам")
+        return
+
+    geo = "не найдено"
+    if truck["latitude"] and truck["longitude"]:
+        geo = f"{round(float(truck['latitude']), 4)}, {round(float(truck['longitude']), 4)}"
+
+    text = (
+        f"🚚 Машина #{truck['id']}\n\n"
+        f"🚛 Марка: {truck['brand'] or 'Не указана'}\n"
+        f"🔤 Модель: {truck['model'] or 'Не указана'}\n"
+        f"🔢 Номер: {truck['plate_number'] or '-'}\n"
+        f"📍 Город: {truck['current_city'] or 'Не указан'}\n"
+        f"📦 Кузов: {truck['body_type'] or 'Не указан'}\n"
+        f"⚖️ Тоннаж: {truck['capacity_tons'] or '-'} т\n"
+        f"📦 Объём: {truck['volume_m3'] or '-'} м³\n"
+        f"🧩 Догрузы: {'разрешены' if truck['allow_partial_load'] else 'выключены'}\n"
+        f"⚖️ Свободно: {truck['free_weight_kg'] or 0} кг\n"
+        f"📦 Свободный объём: {truck['free_volume_m3'] or 0} м³\n"
+        f"💰 Мин. ставка: {truck['min_rate_per_km'] or '-'} ₽/км\n"
+        f"🛣 Радиус поиска: {truck['search_radius_km'] or '-'} км\n"
+        f"🌐 GEO: {geo}\n"
+        f"📝 {truck['comment'] or 'Комментариев нет'}\n"
+        f"{human_status(truck['status'])}"
+    )
+
+    if truck["photo_file_id"]:
+        await update.message.reply_photo(
+            photo=truck["photo_file_id"],
+            caption=text
+        )
+    else:
+        await update.message.reply_text(text)
+
+
+
 async def truck_partial_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -10149,6 +10231,7 @@ def main():
     app.add_handler(CommandHandler("findtruck", findtruck))
     app.add_handler(CommandHandler("mytruck", mytruck))
     app.add_handler(CommandHandler("mytrucks", mytrucks_list))
+    app.add_handler(CommandHandler("truckinfo", truckinfo))
     app.add_handler(CommandHandler("findprice", findprice))
     app.add_handler(CommandHandler("mycargo", mycargo))
     app.add_handler(CommandHandler("deletedcargo", deletedcargo))
