@@ -477,12 +477,6 @@ body.create-form-open #openCargoListBtn {
   </select>
 
   <textarea id="cargoDescription" class="input" placeholder="Описание" style="width:100%;margin-bottom:8px"></textarea>
-
-  <button onclick="closeCreateCargoPanel()" class="btn btn-blue" style="width:100%;margin:0 0 8px 0;padding:12px;font-size:14px;font-weight:700">
-    👁 Показать карту
-    <br><span style="font-size:11px;font-weight:400">карточка свернётся, данные сохранятся</span>
-  </button>
-
   <div class="toolbar" style="margin-top:0">
     <button onclick="clearCreateForm()" class="btn btn-orange" style="flex:1">🧹 Очистить форму</button>
   </div>
@@ -1469,6 +1463,67 @@ document.addEventListener('DOMContentLoaded', function() {
 /* === END UI CLEAN JS === */
 
 </script>
+
+<style id="ux-create-bottom-sheet">
+/* UX: компактная нижняя шторка, чтобы карта оставалась видимой */
+#createCargoPanel {
+  position: fixed !important;
+  left: 8px !important;
+  right: 8px !important;
+  bottom: 8px !important;
+  top: auto !important;
+  width: auto !important;
+  max-width: none !important;
+  max-height: 38vh !important;
+  overflow-y: auto !important;
+  border-radius: 16px !important;
+  padding: 8px !important;
+  box-shadow: 0 -8px 28px rgba(15, 23, 42, .24) !important;
+  z-index: 4000 !important;
+}
+
+#createCargoPanel b {
+  font-size: 12px !important;
+}
+
+#createCargoPanel input,
+#createCargoPanel select {
+  min-height: 25px !important;
+  height: 25px !important;
+  font-size: 11px !important;
+  margin-bottom: 4px !important;
+  padding: 4px 8px !important;
+}
+
+#createCargoPanel textarea {
+  min-height: 38px !important;
+  max-height: 52px !important;
+  font-size: 11px !important;
+  margin-bottom: 4px !important;
+  padding: 5px 8px !important;
+}
+
+#createCargoPanel button {
+  min-height: 27px !important;
+  font-size: 11px !important;
+  padding: 5px 8px !important;
+  margin-bottom: 4px !important;
+}
+
+#createCargoPanel .toolbar {
+  gap: 6px !important;
+}
+
+#createCargoCloseBtn {
+  position: sticky !important;
+  top: 0 !important;
+  z-index: 4100 !important;
+  width: 100% !important;
+  margin-bottom: 6px !important;
+  border-radius: 10px !important;
+}
+</style>
+
 </body>
 </html>
 
