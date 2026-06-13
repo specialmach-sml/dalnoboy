@@ -1141,6 +1141,48 @@ async def mytrucks_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def truckcomment(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "📝 Укажите ID машины и комментарий.\n\n"
+            "Пример:\n"
+            "/truckcomment 1 свободен завтра"
+        )
+        return
+
+    try:
+        truck_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("❌ ID машины должен быть числом. Например: /truckcomment 1 свободен завтра")
+        return
+
+    comment = " ".join(context.args[1:]).strip()
+
+    owner_ok = await DB.fetchval("""
+        SELECT EXISTS(
+            SELECT 1 FROM trucks
+            WHERE id=$1 AND driver_id=$2
+        )
+    """, truck_id, user_id)
+
+    if not owner_ok:
+        await update.message.reply_text("❌ Машина не найдена или не принадлежит вам")
+        return
+
+    await DB.execute("""
+        UPDATE trucks
+        SET comment=$1
+        WHERE id=$2 AND driver_id=$3
+    """, comment, truck_id, user_id)
+
+    await update.message.reply_text(f"✅ Комментарий машины #{truck_id} обновлён")
+
+    context.args = [str(truck_id)]
+    await truckinfo(update, context)
+
+
 async def truckinfo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -10232,6 +10274,7 @@ def main():
     app.add_handler(CommandHandler("mytruck", mytruck))
     app.add_handler(CommandHandler("mytrucks", mytrucks_list))
     app.add_handler(CommandHandler("truckinfo", truckinfo))
+    app.add_handler(CommandHandler("truckcomment", truckcomment))
     app.add_handler(CommandHandler("findprice", findprice))
     app.add_handler(CommandHandler("mycargo", mycargo))
     app.add_handler(CommandHandler("deletedcargo", deletedcargo))
