@@ -1084,6 +1084,60 @@ async def mytruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def mytrucks_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    rows = await DB.fetch("""
+        SELECT
+            id,
+            current_city,
+            body_type,
+            capacity_tons,
+            volume_m3,
+            free_weight_kg,
+            free_volume_m3,
+            allow_partial_load,
+            status,
+            min_rate_per_km,
+            search_radius_km,
+            location_updated_at
+        FROM trucks
+        WHERE driver_id=$1
+        ORDER BY id
+    """, user_id)
+
+    if not rows:
+        await update.message.reply_text(
+            "🚚 У вас пока нет машин.\n\n"
+            "Чтобы добавить машину, отправьте команду:\n"
+            "/newtruck"
+        )
+        return
+
+    text = f"🚚 Мои машины: {len(rows)}\n\n"
+
+    for r in rows:
+        text += (
+            f"#{r['id']} — {r['current_city'] or 'город не указан'}\n"
+            f"📦 {r['body_type'] or '-'} | ⚖️ {r['capacity_tons'] or '-'} т | "
+            f"{r['volume_m3'] or '-'} м³\n"
+            f"🧩 Догрузы: {'включены' if r['allow_partial_load'] else 'выключены'}\n"
+            f"⚖️ Свободно: {r['free_weight_kg'] or 0} кг | "
+            f"📦 {r['free_volume_m3'] or 0} м³\n"
+            f"💰 Ставка: {r['min_rate_per_km'] or '-'} ₽/км | "
+            f"🛣 Радиус: {r['search_radius_km'] or '-'} км\n"
+            f"Статус: {human_status(r['status'])}\n\n"
+        )
+
+    text += (
+        "➕ Добавить новую машину: /newtruck\n"
+        "✏️ Редактирование пока через кнопку 🚚 Машина для основной машины."
+    )
+
+    await update.message.reply_text(text.strip())
+
+
+
 
 async def truck_partial_toggle(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
@@ -10094,6 +10148,7 @@ def main():
     app.add_handler(CommandHandler("subroutes", subroutes))
     app.add_handler(CommandHandler("findtruck", findtruck))
     app.add_handler(CommandHandler("mytruck", mytruck))
+    app.add_handler(CommandHandler("mytrucks", mytrucks_list))
     app.add_handler(CommandHandler("findprice", findprice))
     app.add_handler(CommandHandler("mycargo", mycargo))
     app.add_handler(CommandHandler("deletedcargo", deletedcargo))
