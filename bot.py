@@ -5840,7 +5840,11 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         JOIN trucks t ON t.id = d.truck_id
         LEFT JOIN responses r ON r.id = d.response_id
         WHERE (c.created_by=$1 OR t.driver_id=$1 OR r.driver_id=$1)
-          AND ($2::bigint IS NULL OR d.id=$2)
+          AND (
+              ($2::bigint IS NOT NULL AND d.id=$2)
+              OR
+              ($2::bigint IS NULL AND d.status NOT IN ('closed', 'cancelled'))
+          )
         ORDER BY d.id DESC
         LIMIT 20
     """, user_id, only_deal_id)
