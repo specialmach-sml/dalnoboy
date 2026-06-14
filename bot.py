@@ -5905,6 +5905,26 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
                 InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
             ])
+        elif is_owner:
+            buttons = []
+
+            if r["status"] in ("delivered", "done"):
+                buttons.append([InlineKeyboardButton("✅ Принять доставку / закрыть рейс", callback_data=f"deal_closed_{r['id']}")])
+                buttons.append([InlineKeyboardButton("⭐ Оценить перевозчика", callback_data=f"review_{r['id']}")])
+            elif r["status"] == "closed":
+                buttons.append([InlineKeyboardButton("✅ Рейс закрыт", callback_data="noop")])
+                buttons.append([InlineKeyboardButton("⭐ Оценить перевозчика", callback_data=f"review_{r['id']}")])
+            elif r["status"] == "cancelled":
+                buttons.append([InlineKeyboardButton("❌ Сделка отменена", callback_data="noop")])
+            else:
+                buttons.append([InlineKeyboardButton("💬 Написать перевозчику", callback_data=f"deal_chat_{r['id']}")])
+                buttons.append([InlineKeyboardButton("📍 Где груз / таймлайн", callback_data=f"deal_timeline_{r['id']}")])
+                buttons.append([InlineKeyboardButton("ℹ️ Статусы рейса ведёт перевозчик", callback_data="noop")])
+
+            buttons.append([
+                InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
+                InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
+            ])
         else:
             buttons = [
                 [InlineKeyboardButton("ℹ️ Статусы рейса у перевозчика", callback_data="noop")],
@@ -5919,7 +5939,7 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("👤 Профиль перевозчика", callback_data=f"user_profile_{r['driver_id']}")
         ])
 
-        if r["status"] in ("done", "delivered", "closed"):
+        if r["status"] in ("done", "delivered", "closed") and not is_owner:
             buttons.append([
                 InlineKeyboardButton("⭐ Оценить", callback_data=f"review_{r['id']}")
             ])
