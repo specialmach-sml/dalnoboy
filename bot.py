@@ -5883,8 +5883,8 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "loading": [InlineKeyboardButton("📦 Загружен", callback_data=f"deal_loaded_{r['id']}")],
                 "loaded": [InlineKeyboardButton("🚛 В пути", callback_data=f"deal_in_progress_{r['id']}")],
                 "in_progress": [InlineKeyboardButton("🏁 Доставлен", callback_data=f"deal_delivered_{r['id']}")],
-                "delivered": [InlineKeyboardButton("✅ Закрыть рейс", callback_data=f"deal_closed_{r['id']}")],
-                "done": [InlineKeyboardButton("✅ Закрыть рейс", callback_data=f"deal_closed_{r['id']}")]
+                "delivered": [InlineKeyboardButton("⏳ Ожидаем принятия заказчиком", callback_data="noop")],
+                "done": [InlineKeyboardButton("⏳ Ожидаем принятия заказчиком", callback_data="noop")]
             }
 
             buttons = []
@@ -7230,7 +7230,32 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for chat_id in {deal["owner_tg"], deal["driver_tg"]}:
         try:
-            await context.bot.send_message(chat_id=chat_id, text=notify_text)
+            notify_kb = None
+
+            # Когда перевозчик отметил доставку, грузоотправитель сразу получает кнопку принятия.
+            if chat_id == deal["owner_tg"]:
+                owner_buttons = []
+
+                if status in ("delivered", "done"):
+                    owner_buttons.append([
+                        InlineKeyboardButton("✅ Принять доставку / закрыть рейс", callback_data=f"deal_closed_{deal_id}")
+                    ])
+                    owner_buttons.append([
+                        InlineKeyboardButton("⭐ Оценить перевозчика", callback_data=f"review_{deal_id}")
+                    ])
+
+                owner_buttons.append([
+                    InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{deal_id}"),
+                    InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{deal_id}")
+                ])
+
+                notify_kb = InlineKeyboardMarkup(owner_buttons)
+
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=notify_text,
+                reply_markup=notify_kb
+            )
         except Exception as e:
             logging.warning(f"Notify failed for {chat_id}: {e}")
 
