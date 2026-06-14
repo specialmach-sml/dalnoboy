@@ -5919,10 +5919,7 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             InlineKeyboardButton("👤 Профиль перевозчика", callback_data=f"user_profile_{r['driver_id']}")
         ])
 
-        if r["status"] in ("done", "delivered"):
-            buttons.append([
-                InlineKeyboardButton("✅ Закрыть рейс", callback_data=f"deal_closed_{r['id']}")
-            ])
+        if r["status"] in ("done", "delivered", "closed"):
             buttons.append([
                 InlineKeyboardButton("⭐ Оценить", callback_data=f"review_{r['id']}")
             ])
