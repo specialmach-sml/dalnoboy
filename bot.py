@@ -5877,24 +5877,34 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             text += "\n\n👁 Вы участник сделки. Доступны чат и таймлайн."
 
         if is_driver:
-            buttons = [
-                [InlineKeyboardButton("🚚 Еду на загрузку", callback_data=f"deal_to_pickup_{r['id']}")],
-                [
-                    InlineKeyboardButton("📍 На загрузке", callback_data=f"deal_loading_{r['id']}"),
-                    InlineKeyboardButton("📦 Загружен", callback_data=f"deal_loaded_{r['id']}")
-                ],
-                [
-                    InlineKeyboardButton("🚛 В пути", callback_data=f"deal_in_progress_{r['id']}"),
-                    InlineKeyboardButton("🏁 Доставлен", callback_data=f"deal_delivered_{r['id']}")
-                ],
-                [
-                    InlineKeyboardButton("❌ Отменить", callback_data=f"deal_cancelled_{r['id']}")
-                ],
-                [
-                    InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
-                    InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
-                ]
-            ]
+            next_buttons = {
+                "active": [InlineKeyboardButton("🚚 Еду на загрузку", callback_data=f"deal_to_pickup_{r['id']}")],
+                "to_pickup": [InlineKeyboardButton("📍 На загрузке", callback_data=f"deal_loading_{r['id']}")],
+                "loading": [InlineKeyboardButton("📦 Загружен", callback_data=f"deal_loaded_{r['id']}")],
+                "loaded": [InlineKeyboardButton("🚛 В пути", callback_data=f"deal_in_progress_{r['id']}")],
+                "in_progress": [InlineKeyboardButton("🏁 Доставлен", callback_data=f"deal_delivered_{r['id']}")],
+                "delivered": [InlineKeyboardButton("✅ Закрыть рейс", callback_data=f"deal_closed_{r['id']}")],
+                "done": [InlineKeyboardButton("✅ Закрыть рейс", callback_data=f"deal_closed_{r['id']}")]
+            }
+
+            buttons = []
+
+            if r["status"] in next_buttons:
+                buttons.append(next_buttons[r["status"]])
+            elif r["status"] == "closed":
+                buttons.append([InlineKeyboardButton("✅ Рейс закрыт", callback_data="noop")])
+            elif r["status"] == "cancelled":
+                buttons.append([InlineKeyboardButton("❌ Сделка отменена", callback_data="noop")])
+            else:
+                buttons.append([InlineKeyboardButton("🚚 Еду на загрузку", callback_data=f"deal_to_pickup_{r['id']}")])
+
+            if r["status"] not in ("closed", "cancelled", "done", "delivered"):
+                buttons.append([InlineKeyboardButton("❌ Отменить", callback_data=f"deal_cancelled_{r['id']}")])
+
+            buttons.append([
+                InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
+                InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
+            ])
         else:
             buttons = [
                 [InlineKeyboardButton("ℹ️ Статусы рейса у перевозчика", callback_data="noop")],
