@@ -5807,6 +5807,7 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     forced_user = context.user_data.pop("_forced_effective_user", None)
+    only_deal_id = context.user_data.pop("_deal_only_id", None)
     user_id = await ensure_user(forced_user or update.effective_user)
 
     rows = await DB.fetch("""
@@ -5838,10 +5839,11 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         JOIN cargo c ON c.id = d.cargo_id
         JOIN trucks t ON t.id = d.truck_id
         LEFT JOIN responses r ON r.id = d.response_id
-        WHERE c.created_by=$1 OR t.driver_id=$1 OR r.driver_id=$1
+        WHERE (c.created_by=$1 OR t.driver_id=$1 OR r.driver_id=$1)
+          AND ($2::bigint IS NULL OR d.id=$2)
         ORDER BY d.id DESC
         LIMIT 20
-    """, user_id)
+    """, user_id, only_deal_id)
 
     if not rows:
         await update.message.reply_text("📭 Сделок нет")
@@ -7213,8 +7215,14 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
     await q.message.reply_text(
-        f"💬 Переговоры #{deal_id}: статус изменён на {status_text}"
+        f"✅ Сделка #{deal_id}: статус изменён на {status_text}\n"
+        f"Ниже свежая карточка с актуальными кнопками."
     )
+
+    context.user_data["_forced_effective_user"] = q.from_user
+    context.user_data["_deal_only_id"] = deal_id
+    fake_update = Update(update.update_id, message=q.message)
+    return await deals_list(fake_update, context)
 
 
 
