@@ -5806,7 +5806,8 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = await ensure_user(update.effective_user)
+    forced_user = context.user_data.pop("_forced_effective_user", None)
+    user_id = await ensure_user(forced_user or update.effective_user)
 
     rows = await DB.fetch("""
         SELECT
@@ -9836,6 +9837,7 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if q.data == "menu_today":
         return await today(fake_update, context)
     if q.data == "menu_deals":
+        context.user_data["_forced_effective_user"] = q.from_user
         return await deals_list(fake_update, context)
     if q.data == "menu_responses":
         return await responses_list(fake_update, context)
