@@ -5868,6 +5868,13 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
         is_owner = user_id == r["owner_id"]
 
         if is_driver:
+            text += "\n\n🚚 Вы в этой сделке: перевозчик. Вам доступны кнопки рейса ниже."
+        elif is_owner:
+            text += "\n\n📦 Вы в этой сделке: заказчик. Статусы рейса меняет перевозчик; вам доступны чат и таймлайн."
+        else:
+            text += "\n\n👁 Вы участник сделки. Доступны чат и таймлайн."
+
+        if is_driver:
             buttons = [
                 [InlineKeyboardButton("🚚 Еду на загрузку", callback_data=f"deal_to_pickup_{r['id']}")],
                 [
@@ -5888,6 +5895,7 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             ]
         else:
             buttons = [
+                [InlineKeyboardButton("ℹ️ Статусы рейса у перевозчика", callback_data="noop")],
                 [
                     InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['id']}"),
                     InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['id']}")
