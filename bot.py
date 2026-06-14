@@ -154,7 +154,7 @@ def main_reply_keyboard(role="carrier", verified=True, roles=None):
             ["🗺 Карта"],
             ["➕ Груз", "📦 Грузы"],
             ["📋 Мои грузы", "📨 Отклики"],
-            ["🤝 Сделки"],
+            ["🤝 Сделки", "📁 Архив сделок"],
             ["👤 Профиль", "⚙️ Настройки"],
             ["💳 Тарифы"]
         ]
@@ -166,6 +166,7 @@ def main_reply_keyboard(role="carrier", verified=True, roles=None):
             ["➕ Груз", "📦 Грузы"],
             ["📋 Мои грузы", "🚚 Машины"],
             ["📨 Отклики", "🤝 Сделки"],
+            ["📁 Архив сделок"],
             ["👥 Водители"],
             ["👤 Профиль", "⚙️ Настройки"],
             ["💳 Тарифы"]
@@ -179,6 +180,7 @@ def main_reply_keyboard(role="carrier", verified=True, roles=None):
             ["📍 Рядом", "🧩 Догрузы"],
             ["🟢 Выгодные"],
             ["📨 Отклики", "🤝 Сделки"],
+            ["📁 Архив сделок"],
             ["👤 Профиль", "⚙️ Настройки"],
             ["💳 Тарифы"]
         ]
@@ -5808,6 +5810,7 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
     forced_user = context.user_data.pop("_forced_effective_user", None)
     only_deal_id = context.user_data.pop("_deal_only_id", None)
+    archive_mode = context.user_data.pop("_deals_archive_mode", False)
     user_id = await ensure_user(forced_user or update.effective_user)
 
     rows = await DB.fetch("""
@@ -5843,14 +5846,19 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
           AND (
               ($2::bigint IS NOT NULL AND d.id=$2)
               OR
-              ($2::bigint IS NULL AND d.status NOT IN ('closed', 'cancelled'))
+              ($2::bigint IS NULL AND $3::boolean=false AND d.status NOT IN ('closed', 'cancelled'))
+              OR
+              ($2::bigint IS NULL AND $3::boolean=true AND d.status IN ('closed', 'cancelled'))
           )
         ORDER BY d.id DESC
         LIMIT 20
-    """, user_id, only_deal_id)
+    """, user_id, only_deal_id, archive_mode)
 
     if not rows:
-        await update.message.reply_text("📭 Сделок нет")
+        if archive_mode:
+            await update.message.reply_text("📁 Архив сделок пуст")
+        else:
+            await update.message.reply_text("📭 Активных сделок нет")
         return
 
     for r in rows:
@@ -5956,6 +5964,12 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+
+
+
+async def deals_archive(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data["_deals_archive_mode"] = True
+    return await deals_list(update, context)
 
 
 async def deal_closedispute_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -8832,6 +8846,8 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await nearby_profit(update, context)
     if text == "🤝 Сделки":
         return await deals_list(update, context)
+    if text == "📁 Архив сделок":
+        return await deals_archive(update, context)
     if text == "⚙️ Настройки":
         return await truck_settings(update, context)
     if text == "🗺 Карта":
@@ -10369,7 +10385,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, review_comment_text), group=-5)
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, deal_document_message), group=-1)
     app.add_handler(MessageHandler(filters.PHOTO, truck_photo_message))
-    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🧩 Догрузы|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню|📝 Подать заявку|🤝 Сделки|➕ Запросить роль|🛡 Админ)$"), reply_menu_handler))
+    app.add_handler(MessageHandler(filters.Regex("^(📦 Грузы|📋 Мои грузы|📍 Рядом|🧩 Догрузы|🟢 Выгодные|🗺 Карта|⚙️ Настройки|➕ Груз|🚚 Машина|📨 Отклики|👤 Профиль|💳 Тарифы|🏠 Меню|📝 Подать заявку|🤝 Сделки|📁 Архив сделок|➕ Запросить роль|🛡 Админ)$"), reply_menu_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, tariff_price_text))
 
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, truck_edit_message))
@@ -10436,6 +10452,7 @@ def main():
     app.add_handler(CommandHandler("replydeal", replydeal))
     app.add_handler(CommandHandler("searchdeal", searchdeal))
     app.add_handler(CommandHandler("deals", deals_list))
+    app.add_handler(CommandHandler("deals_archive", deals_archive))
     app.add_handler(CommandHandler("dealtimeline", dealtimeline))
     app.add_handler(CommandHandler("dealreport", dealreport))
     app.add_handler(CommandHandler("dealpdf", dealpdf))
