@@ -1,6 +1,7 @@
 import aiohttp
 import asyncio
 import logging
+import json
 import shutil
 import os
 import qrcode
@@ -31,7 +32,7 @@ def distance_km(lat1, lon1, lat2, lon2):
         return None
 
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, KeyboardButton, WebAppInfo
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove, KeyboardButton, WebAppInfo
 from telegram.ext import (
     Application,
     CommandHandler,
@@ -244,6 +245,51 @@ async def ensure_user(tg_user):
 
 
 
+
+
+
+async def audit(user_id, action, deal_id=None, cargo_id=None, payload=None):
+    """
+    Юридический журнал действий.
+    Пишем только технический факт действия, без лишних персональных данных.
+    Ошибка аудита не должна ломать работу бота.
+    """
+    if payload is None:
+        payload = {}
+
+    try:
+        await DB.execute("""
+            INSERT INTO audit_log (
+                user_id,
+                deal_id,
+                cargo_id,
+                action,
+                payload
+            )
+            VALUES ($1, $2, $3, $4, $5::jsonb)
+        """, user_id, deal_id, cargo_id, action, json.dumps(payload, ensure_ascii=False))
+    except Exception as e:
+        logging.warning(f"audit_log failed: {e}")
+
+
+
+async def audit_test(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if user_id != 1:
+        await update.message.reply_text("⛔ Нет доступа")
+        return
+
+    await audit(
+        user_id,
+        "audit_test",
+        payload={
+            "source": "telegram_command",
+            "telegram_id": update.effective_user.id
+        }
+    )
+
+    await update.message.reply_text("✅ audit_log test записан")
 
 
 
@@ -2680,7 +2726,13 @@ async def mycargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         FROM cargo
         WHERE created_by=$1
           AND status <> 'deleted'
-        ORDER BY id DESC
+        ORDER BY
+            CASE
+                WHEN status='open' THEN 2
+                WHEN status='cancelled' THEN 1
+                ELSE 0
+            END ASC,
+            id ASC
         LIMIT 20
     """, user_id)
 
@@ -2899,6 +2951,8 @@ async def cargo_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
         WHERE id=$1
     """, cargo_id)
 
+    await audit(user_id, "cargo_refreshed", cargo_id=cargo_id, payload={"plan_type": plan})
+
     await q.message.reply_text(
         f"🔝 Груз #{cargo_id} поднят в поиске"
     )
@@ -2936,9 +2990,39 @@ async def cargo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         WHERE id=$1
     """, cargo_id)
 
+    await audit(user_id, "cargo_cancelled", cargo_id=cargo_id, payload={"previous_status": cargo["status"]})
+
     await q.message.reply_text(
         f"❌ Груз #{cargo_id} снят с публикации"
     )
+
+    # fresh_card_after_cargo_cancel
+    fresh = await DB.fetchrow("""
+        SELECT id, from_city, to_city, description, price_amount, price_currency,
+               weight_kg, volume_m3, places_count, cargo_type, status
+        FROM cargo
+        WHERE id=$1
+    """, cargo_id)
+
+    if fresh:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Опубликовать снова", callback_data=f"cargo_open_{fresh['id']}")],
+            [InlineKeyboardButton("🗑 Удалить груз", callback_data=f"cargo_delete_{fresh['id']}")]
+        ])
+
+        await q.message.reply_text(
+            f"📦 Мой груз #{fresh['id']}\n"
+            f"🚩 {fresh['from_city']} → {fresh['to_city']}\n"
+            f"📝 {fresh['description'] or 'Без описания'}\n"
+            f"💰 {format_price(fresh['price_amount'])} {fresh['price_currency'] or ''}\n"
+            f"⚖️ Вес: {fresh['weight_kg'] or 0} кг\n"
+            f"📦 Объём: {fresh['volume_m3'] or 0} м³\n"
+            f"🔢 Мест: {fresh['places_count'] or 0}\n"
+            f"🚚 Тип: {cargo_type_name(fresh['cargo_type'])}\n"
+            f"📊 Статус: {human_status(fresh['status'])}",
+            reply_markup=kb
+        )
+
 
 
 
@@ -2974,7 +3058,40 @@ async def cargo_open(update: Update, context: ContextTypes.DEFAULT_TYPE):
         WHERE id=$1
     """, cargo_id)
 
+    await audit(user_id, "cargo_opened", cargo_id=cargo_id, payload={"previous_status": cargo["status"]})
+
     await q.message.reply_text(f"✅ Груз #{cargo_id} снова опубликован")
+
+    # fresh_card_after_cargo_open
+    fresh = await DB.fetchrow("""
+        SELECT id, from_city, to_city, description, price_amount, price_currency,
+               weight_kg, volume_m3, places_count, cargo_type, status
+        FROM cargo
+        WHERE id=$1
+    """, cargo_id)
+
+    if fresh:
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("❌ Снять груз", callback_data=f"cargo_cancel_{fresh['id']}")],
+            [InlineKeyboardButton("🔁 Повторить", callback_data=f"cargo_clone_{fresh['id']}")],
+            [InlineKeyboardButton("🔝 Поднять груз", callback_data=f"cargo_refresh_{fresh['id']}")],
+            [InlineKeyboardButton("🚀 Заявка: ТОП", callback_data=f"cargo_promo_boost_{fresh['id']}")],
+            [InlineKeyboardButton("⭐ Заявка: VIP", callback_data=f"cargo_promo_vip_{fresh['id']}")]
+        ])
+
+        await q.message.reply_text(
+            f"📦 Мой груз #{fresh['id']}\n"
+            f"🚩 {fresh['from_city']} → {fresh['to_city']}\n"
+            f"📝 {fresh['description'] or 'Без описания'}\n"
+            f"💰 {format_price(fresh['price_amount'])} {fresh['price_currency'] or ''}\n"
+            f"⚖️ Вес: {fresh['weight_kg'] or 0} кг\n"
+            f"📦 Объём: {fresh['volume_m3'] or 0} м³\n"
+            f"🔢 Мест: {fresh['places_count'] or 0}\n"
+            f"🚚 Тип: {cargo_type_name(fresh['cargo_type'])}\n"
+            f"📊 Статус: {human_status(fresh['status'])}",
+            reply_markup=kb
+        )
+
 
 
 
@@ -3044,6 +3161,8 @@ async def cargo_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
         SET status='deleted'
         WHERE id=$1
     """, cargo_id)
+
+    await audit(user_id, "cargo_deleted", cargo_id=cargo_id, payload={"previous_status": cargo["status"]})
 
     await q.message.reply_text(f"🗑 Груз #{cargo_id} удалён из списка")
 
@@ -3486,11 +3605,29 @@ async def closedispute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("DEAL_ID должен быть числом")
         return
 
+    deal = await DB.fetchrow("""
+        SELECT id, cargo_id
+        FROM deals
+        WHERE id=$1
+    """, deal_id)
+
+    if not deal:
+        await update.message.reply_text("❌ Сделка не найдена")
+        return
+
     await DB.execute("""
         UPDATE deals
         SET dispute=false
         WHERE id=$1
     """, deal_id)
+
+    await audit(
+        admin_id,
+        "dispute_closed",
+        deal_id=deal_id,
+        cargo_id=deal["cargo_id"],
+        payload={"source": "command"}
+    )
 
     await update.message.reply_text(f"✅ Жалоба по сделке #{deal_id} закрыт")
 
@@ -4480,6 +4617,8 @@ async def boostcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ Груз не найден")
         return
 
+    await audit(user_id, "cargo_boosted", cargo_id=row["id"], payload={"days": days, "boost_until": str(row["boost_until"])})
+
     await update.message.reply_text(
         f"🚀 Груз #{row['id']} поднят в ТОП\n"
         f"{row['from_city']} → {row['to_city']}\n"
@@ -4515,6 +4654,8 @@ async def vipcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not row:
         await update.message.reply_text("❌ Груз не найден")
         return
+
+    await audit(user_id, "cargo_vip_enabled", cargo_id=row["id"], payload={"days": days, "vip_until": str(row["vip_until"])})
 
     await update.message.reply_text(
         f"⭐ Груз #{row['id']} получил VIP\n"
@@ -4583,6 +4724,8 @@ async def cargo_restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
         SET status='cancelled'
         WHERE id=$1
     """, cargo_id)
+
+    await audit(user_id, "cargo_restored", cargo_id=cargo_id, payload={"previous_status": cargo["status"], "new_status": "cancelled"})
 
     await q.message.reply_text(f"♻️ Груз #{cargo_id} восстановлен как снятый")
 
@@ -5157,6 +5300,17 @@ async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"Отклик от {tg_user.full_name}"
     )
 
+
+    await audit(
+        user_id,
+        "response_created",
+        cargo_id=cargo_id,
+        payload={
+            "response_id": response_id,
+            "truck_id": truck["id"]
+        }
+    )
+
     owner = await DB.fetchrow("""
         SELECT
             u.telegram_id,
@@ -5373,7 +5527,7 @@ async def dispute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     deal = await DB.fetchrow("""
-        SELECT d.id, c.created_by, r.driver_id
+        SELECT d.id, d.cargo_id, c.created_by, r.driver_id
         FROM deals d
         JOIN cargo c ON c.id = d.cargo_id
         JOIN responses r ON r.id = d.response_id
@@ -5404,6 +5558,17 @@ async def dispute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         VALUES ($1,$2,$3)
     """, deal_id, user_id, msg)
+
+
+    await audit(
+        user_id,
+        "dispute_opened",
+        deal_id=deal_id,
+        cargo_id=deal["cargo_id"],
+        payload={
+            "source": "command"
+        }
+    )
 
     await update.message.reply_text(f"🚩 Жалоба по сделке #{deal_id} открыт")
 
@@ -5723,6 +5888,30 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             LIMIT 1
         """, q.from_user.id)
 
+
+        await audit(
+            actor["id"] if actor else None,
+            "response_accepted",
+            deal_id=deal_id,
+            cargo_id=response["cargo_id"],
+            payload={
+                "response_id": response_id,
+                "truck_id": response["truck_id"]
+            }
+        )
+
+        if not existing_deal:
+            await audit(
+                actor["id"] if actor else None,
+                "deal_created",
+                deal_id=deal_id,
+                cargo_id=response["cargo_id"],
+                payload={
+                    "response_id": response_id,
+                    "truck_id": response["truck_id"]
+                }
+            )
+
         history_exists = await DB.fetchval("""
             SELECT COUNT(*)
             FROM deal_status_history
@@ -6009,6 +6198,14 @@ async def deal_closedispute_button(update: Update, context: ContextTypes.DEFAULT
         )
         VALUES ($1,$2,'✅ Жалоба закрыт')
     """, deal_id, user_id)
+
+    await audit(
+        user_id,
+        "dispute_closed",
+        deal_id=deal_id,
+        cargo_id=deal["cargo_id"],
+        payload={"source": "button"}
+    )
 
     await q.message.reply_text(f"✅ Жалоба по сделке #{deal_id} закрыт")
 
@@ -6407,6 +6604,17 @@ async def deal_chat_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         VALUES ($1,$2,$3)
     """, deal_id, user_id, text)
+
+
+    await audit(
+        user_id,
+        "deal_chat_message",
+        deal_id=deal_id,
+        cargo_id=deal["cargo_id"],
+        payload={
+            "message_len": len(text)
+        }
+    )
 
     other_tg = await DB.fetchval("""
         SELECT u.telegram_id
@@ -7206,6 +7414,17 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
             actor["id"]
         )
 
+
+    await audit(
+        actor["id"] if actor else None,
+        "deal_status_changed",
+        deal_id=deal_id,
+        cargo_id=deal["cargo_id"],
+        payload={
+            "status": status
+        }
+    )
+
     cargo_status = {
         "active": "booked",
         "to_pickup": "in_progress",
@@ -7442,6 +7661,28 @@ async def review_comment_text(update: Update, context: ContextTypes.DEFAULT_TYPE
         is_complaint
     )
 
+
+
+    cargo_id = await DB.fetchval("""
+        SELECT cargo_id
+        FROM deals
+        WHERE id=$1
+    """, deal_id)
+
+    await audit(
+        from_user_id,
+        "review_created",
+        deal_id=deal_id,
+        cargo_id=cargo_id,
+        payload={
+            "to_user_id": to_user_id,
+            "score": score,
+            "review_type": review_type,
+            "is_complaint": is_complaint,
+            "comment_len": len(comment)
+        }
+    )
+
     context.user_data.pop("pending_review", None)
 
     await update.message.reply_text(
@@ -7471,6 +7712,65 @@ async def review_comment_text(update: Update, context: ContextTypes.DEFAULT_TYPE
             logging.warning(f"review notify failed: {e}")
 
     raise ApplicationHandlerStop
+
+
+async def skip_cargo_geo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    cargo_id = context.user_data.pop("awaiting_cargo_geo", None)
+
+    if cargo_id:
+        await update.message.reply_text(
+            f"⏭ Гео загрузки для груза #{cargo_id} пропущено.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+    else:
+        await update.message.reply_text(
+            "⏭ Гео сейчас не ожидается.",
+            reply_markup=ReplyKeyboardRemove()
+        )
+
+    return await menu(update, context)
+
+
+async def newcargo_button_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    tg_user = q.from_user
+    user_id = await ensure_user(tg_user)
+
+    user = await DB.fetchrow("""
+        SELECT
+            COALESCE(role, 'carrier') AS role,
+            COALESCE(plan_type, 'free') AS plan_type
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    role = user["role"]
+    plan_type = user["plan_type"]
+
+    active_cargo = await DB.fetchval("""
+        SELECT COUNT(*)
+        FROM cargo
+        WHERE created_by=$1
+          AND status='open'
+    """, user_id)
+
+    if role in ("admin", "dispatcher") or plan_type == "company":
+        limit = 999999
+    else:
+        limit = 1
+
+    if active_cargo >= limit:
+        await q.message.reply_text(
+            "🚫 Лимит активных грузов достигнут. Сначала снимите старый груз или улучшите тариф."
+        )
+        return ConversationHandler.END
+
+    context.user_data["newcargo"] = {}
+
+    await q.message.reply_text("📍 Введите город загрузки:")
+    return CARGO_FROM
 
 
 async def newcargo_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -7757,10 +8057,27 @@ async def newcargo_distance(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     context.user_data["awaiting_cargo_geo"] = row["id"]
 
+    await audit(
+        user_id,
+        "cargo_created",
+        cargo_id=row["id"],
+        payload={
+            "from_city": data.get("from_city"),
+            "to_city": data.get("to_city"),
+            "price_amount": data.get("price_amount"),
+            "distance_km": data.get("distance_km"),
+            "cargo_type": data.get("cargo_type", "full")
+        }
+    )
+
     kb = ReplyKeyboardMarkup(
-        [[KeyboardButton("📍 Отправить гео загрузки", request_location=True)]],
+        [
+            [KeyboardButton("📍 Отправить гео загрузки", request_location=True)],
+            ["⏭ Пропустить гео"],
+            ["📋 Мои грузы", "🏠 Меню"]
+        ],
         resize_keyboard=True,
-        one_time_keyboard=True
+        one_time_keyboard=False
     )
 
     type_names = {
@@ -10342,6 +10659,7 @@ def main():
     newcargo_handler = ConversationHandler(
         entry_points=[
             CommandHandler("newcargo", newcargo_start),
+            CallbackQueryHandler(newcargo_button_start, pattern="^menu_newcargo$"),
             MessageHandler(filters.Regex("^➕ Груз$"), newcargo_start),
         ],
         states={
@@ -10381,6 +10699,8 @@ def main():
     app.add_handler(MessageHandler(filters.ALL, ban_guard), group=-2)
     app.add_handler(MessageHandler(filters.ALL, rate_limit_guard), group=-1)
 
+    app.add_handler(MessageHandler(filters.Regex("^⏭ Пропустить гео$"), skip_cargo_geo))
+    app.add_handler(CommandHandler("skipgeo", skip_cargo_geo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, dispute_reason_text), group=-4)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, review_comment_text), group=-5)
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, deal_document_message), group=-1)
@@ -10438,6 +10758,7 @@ def main():
     app.add_handler(CommandHandler("unban", unban_user))
     app.add_handler(CommandHandler("backupbot", backupbot))
     app.add_handler(CommandHandler("health", health))
+    app.add_handler(CommandHandler("audit_test", audit_test))
     app.add_handler(CommandHandler("version", version))
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("uptime", uptime))
