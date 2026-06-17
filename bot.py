@@ -2761,6 +2761,94 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+LEGAL_DOC_VERSION = "2026-06-17-v1"
+LEGAL_CONSENT_TYPES = [
+    "user_agreement",
+    "privacy_policy",
+    "personal_data_consent",
+    "geo_consent"
+]
+
+
+async def has_required_legal_consents(user_id: int) -> bool:
+    count = await DB.fetchval("""
+        SELECT COUNT(DISTINCT consent_type)
+        FROM user_consents
+        WHERE user_id=$1
+          AND document_version=$2
+          AND source='telegram_bot'
+          AND revoked_at IS NULL
+          AND consent_type = ANY($3::text[])
+    """, user_id, LEGAL_DOC_VERSION, LEGAL_CONSENT_TYPES)
+
+    return int(count or 0) >= len(LEGAL_CONSENT_TYPES)
+
+
+
+async def consent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if await has_required_legal_consents(user_id):
+        await update.message.reply_text(
+            f"✅ Юридические условия уже приняты.\nВерсия: {LEGAL_DOC_VERSION}"
+        )
+        return
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Принимаю условия", callback_data="legal_consent_accept")],
+        [InlineKeyboardButton("❌ Не принимаю", callback_data="legal_consent_decline")]
+    ])
+
+    await update.message.reply_text(
+        "⚖️ Перед использованием сервиса нужно принять условия.\n\n"
+        "1. Пользовательское соглашение\n"
+        "2. Политика обработки персональных данных\n"
+        "3. Согласие на обработку персональных данных\n"
+        "4. Согласие на использование геолокации\n\n"
+        f"Версия документов: {LEGAL_DOC_VERSION}",
+        reply_markup=kb
+    )
+
+
+async def legal_consent_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    user_id = await ensure_user(q.from_user)
+
+    if q.data == "legal_consent_decline":
+        await q.message.reply_text(
+            "❌ Условия не приняты.\nДоступ к сервису может быть ограничен.\nДля возврата отправьте /consent"
+        )
+        return
+
+    tg_id = q.from_user.id
+
+    for consent_type in LEGAL_CONSENT_TYPES:
+        await DB.execute("""
+            INSERT INTO user_consents (
+                user_id, telegram_id, consent_type,
+                document_version, source, text_hash, payload
+            )
+            VALUES ($1, $2, $3, $4, 'telegram_bot', 'draft-v1', '{}'::jsonb)
+            ON CONFLICT (user_id, consent_type, document_version, source)
+            DO UPDATE SET
+                accepted_at=now(),
+                revoked_at=NULL,
+                text_hash='draft-v1'
+        """, user_id, tg_id, consent_type, LEGAL_DOC_VERSION)
+
+    await audit(
+        user_id,
+        "legal_consent_accepted",
+        payload={"version": LEGAL_DOC_VERSION, "source": "telegram_bot"}
+    )
+
+    await q.message.reply_text("✅ Условия приняты.\nТеперь можно пользоваться сервисом. Отправьте /menu")
+
+
+
+
 def format_price(value):
     """
     Красивый формат цены:
@@ -11019,6 +11107,8 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, dispatcher_commission_text), group=-100)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("consent", consent_command))
+    app.add_handler(CallbackQueryHandler(legal_consent_button, pattern="^legal_consent_"))
     app.add_handler(CallbackQueryHandler(settings_buttons, pattern="^settings_"), group=-10)
     app.add_handler(CommandHandler("cargo", cargo))
     app.add_handler(CommandHandler("find", find_cargo))
