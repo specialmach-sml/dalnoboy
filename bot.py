@@ -9341,7 +9341,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
         return
     if text == "➕ Груз":
-        return
+        return await newcargo_start(update, context)
     if text == "🚚 Машина":
         user_id = await ensure_user(update.effective_user)
 
