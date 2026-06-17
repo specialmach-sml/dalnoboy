@@ -9516,6 +9516,11 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
     text = update.message.text
     logging.info(f"reply_menu_handler text={repr(text)}")
 
+    user_id = await ensure_user(update.effective_user)
+
+    if not await has_required_legal_consents(user_id):
+        return await consent_command(update, context)
+
     if text == "📝 Подать заявку":
         return await access_request_start(update, context)
 
