@@ -3418,7 +3418,8 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
          InlineKeyboardButton("💳 Тарифы", callback_data="admin_tariffs")],
         [InlineKeyboardButton("🚩 Жалобы", callback_data="admin_panel_reports"),
          InlineKeyboardButton("🔔 Маршруты", callback_data="admin_panel_routes")],
-        [InlineKeyboardButton("⚖️ Аудит", callback_data="admin_panel_audit")]
+        [InlineKeyboardButton("⚖️ Аудит", callback_data="admin_panel_audit"),
+         InlineKeyboardButton("👥 Роли", callback_data="admin_panel_roles")]
     ])
 
     await update.message.reply_text(text, reply_markup=kb)
@@ -3588,6 +3589,58 @@ async def admin_audit_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+async def admin_roles_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    admin_user_id = await ensure_user(q.from_user)
+
+    if not await is_admin_user(admin_user_id):
+        await q.message.reply_text("⛔ Доступ только для администратора")
+        return
+
+    rows = await DB.fetch("""
+        SELECT id, telegram_id, full_name, role, verified, plan_type
+        FROM users
+        ORDER BY id DESC
+        LIMIT 20
+    """)
+
+    if not rows:
+        await q.message.reply_text("📭 Пользователей пока нет")
+        return
+
+    role_names = {
+        "admin": "🛠 Админ",
+        "carrier": "🚚 Перевозчик",
+        "driver": "🚚 Водитель",
+        "shipper": "📦 Грузовладелец",
+        "dispatcher": "📡 Диспетчер"
+    }
+
+    lines = [
+        "👥 Роли пользователей\n",
+        "Команды:",
+        "/setrole USER_ID carrier",
+        "/setrole USER_ID shipper",
+        "/setrole USER_ID dispatcher",
+        "/setrole USER_ID admin\n"
+    ]
+
+    for r in rows:
+        verified = "✅" if r["verified"] else "⏳"
+        role = role_names.get(r["role"], r["role"] or "-")
+        lines.append(
+            f"#{r['id']} | {r['full_name'] or '-'} | {role} | {verified} | {r['plan_type'] or 'free'}"
+        )
+
+    text = "\n".join(lines)
+
+    if len(text) > 3900:
+        text = text[:3900] + "\n...обрезано"
+
+    await q.message.reply_text(text)
+
+
+
 async def admin_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -3639,6 +3692,9 @@ async def admin_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if data == "admin_panel_audit":
         return await admin_audit_panel(update, context)
+
+    if data == "admin_panel_roles":
+        return await admin_roles_panel(update, context)
 
     if data == "admin_panel_routes":
         return await mysubs(fake_update, context)
