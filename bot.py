@@ -248,6 +248,113 @@ async def ensure_user(tg_user):
 
 
 
+async def is_admin_user(user_id):
+    row = await DB.fetchrow("""
+        SELECT role
+        FROM users
+        WHERE id=$1
+    """, user_id)
+
+    return bool(row and row["role"] == "admin")
+
+
+async def auditcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if not await is_admin_user(user_id):
+        await update.message.reply_text("⛔ Доступ только для администратора")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Использование: /auditcargo 14")
+        return
+
+    try:
+        cargo_id = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("❌ ID груза должен быть числом")
+        return
+
+    rows = await DB.fetch("""
+        SELECT id, user_id, action, deal_id, cargo_id, payload, created_at
+        FROM audit_log
+        WHERE cargo_id=$1
+        ORDER BY id DESC
+        LIMIT 20
+    """, cargo_id)
+
+    if not rows:
+        await update.message.reply_text(f"📭 По грузу #{cargo_id} записей аудита нет")
+        return
+
+    lines = [f"⚖️ Аудит груза #{cargo_id}\n"]
+
+    for r in rows:
+        lines.append(
+            f"#{r['id']} — {r['action']}\n"
+            f"👤 user_id: {r['user_id'] or '-'}\n"
+            f"🤝 deal_id: {r['deal_id'] or '-'}\n"
+            f"🕒 {r['created_at']}\n"
+            f"📌 {r['payload'] or {}}\n"
+        )
+
+    text = "\n".join(lines)
+
+    if len(text) > 3900:
+        text = text[:3900] + "\n...обрезано"
+
+    await update.message.reply_text(text)
+
+
+async def auditdeal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = await ensure_user(update.effective_user)
+
+    if not await is_admin_user(user_id):
+        await update.message.reply_text("⛔ Доступ только для администратора")
+        return
+
+    if not context.args:
+        await update.message.reply_text("Использование: /auditdeal 10")
+        return
+
+    try:
+        deal_id = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("❌ ID сделки должен быть числом")
+        return
+
+    rows = await DB.fetch("""
+        SELECT id, user_id, action, deal_id, cargo_id, payload, created_at
+        FROM audit_log
+        WHERE deal_id=$1
+        ORDER BY id DESC
+        LIMIT 20
+    """, deal_id)
+
+    if not rows:
+        await update.message.reply_text(f"📭 По сделке #{deal_id} записей аудита нет")
+        return
+
+    lines = [f"⚖️ Аудит сделки #{deal_id}\n"]
+
+    for r in rows:
+        lines.append(
+            f"#{r['id']} — {r['action']}\n"
+            f"👤 user_id: {r['user_id'] or '-'}\n"
+            f"📦 cargo_id: {r['cargo_id'] or '-'}\n"
+            f"🕒 {r['created_at']}\n"
+            f"📌 {r['payload'] or {}}\n"
+        )
+
+    text = "\n".join(lines)
+
+    if len(text) > 3900:
+        text = text[:3900] + "\n...обрезано"
+
+    await update.message.reply_text(text)
+
+
+
 async def audit(user_id, action, deal_id=None, cargo_id=None, payload=None):
     """
     Юридический журнал действий.
@@ -10759,6 +10866,8 @@ def main():
     app.add_handler(CommandHandler("backupbot", backupbot))
     app.add_handler(CommandHandler("health", health))
     app.add_handler(CommandHandler("audit_test", audit_test))
+    app.add_handler(CommandHandler("auditcargo", auditcargo))
+    app.add_handler(CommandHandler("auditdeal", auditdeal))
     app.add_handler(CommandHandler("version", version))
     app.add_handler(CommandHandler("ping", ping))
     app.add_handler(CommandHandler("uptime", uptime))
