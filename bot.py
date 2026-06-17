@@ -257,6 +257,102 @@ async def is_admin_user(user_id):
     return bool(row and row["role"] == "admin")
 
 
+async def setrole(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    admin_user_id = await ensure_user(update.effective_user)
+
+    if not await is_admin_user(admin_user_id):
+        await update.message.reply_text("⛔ Доступ только для администратора")
+        return
+
+    if len(context.args) < 2:
+        await update.message.reply_text(
+            "Использование:\n"
+            "/setrole USER_ID carrier\n"
+            "/setrole USER_ID shipper\n"
+            "/setrole USER_ID dispatcher\n"
+            "/setrole USER_ID admin"
+        )
+        return
+
+    try:
+        target_user_id = int(context.args[0])
+    except Exception:
+        await update.message.reply_text("❌ USER_ID должен быть числом")
+        return
+
+    role = context.args[1].lower().strip()
+
+    allowed = ["carrier", "shipper", "dispatcher", "admin"]
+    if role not in allowed:
+        await update.message.reply_text(
+            "❌ Роль должна быть одной из:\n"
+            "carrier — перевозчик\n"
+            "shipper — грузовладелец\n"
+            "dispatcher — диспетчер\n"
+            "admin — админ"
+        )
+        return
+
+    target = await DB.fetchrow("""
+        SELECT id, telegram_id, full_name, role
+        FROM users
+        WHERE id=$1
+    """, target_user_id)
+
+    if not target:
+        await update.message.reply_text(f"❌ Пользователь #{target_user_id} не найден")
+        return
+
+    old_role = target["role"]
+
+    await DB.execute("""
+        UPDATE users
+        SET role=$1,
+            verified=true,
+            banned=false
+        WHERE id=$2
+    """, role, target_user_id)
+
+    await DB.execute("""
+        INSERT INTO user_roles (user_id, role, verified, active, paid)
+        VALUES ($1, $2, true, true, true)
+        ON CONFLICT (user_id, role)
+        DO UPDATE SET
+            verified=true,
+            active=true,
+            paid=true,
+            expires_at=NULL
+    """, target_user_id, role)
+
+    await audit(
+        admin_user_id,
+        "user_role_set",
+        payload={
+            "target_user_id": target_user_id,
+            "telegram_id": target["telegram_id"],
+            "old_role": old_role,
+            "new_role": role
+        }
+    )
+
+    role_names = {
+        "carrier": "🚚 Перевозчик",
+        "shipper": "📦 Грузовладелец",
+        "dispatcher": "📡 Диспетчер",
+        "admin": "🛠 Админ"
+    }
+
+    await update.message.reply_text(
+        f"✅ Роль обновлена\n\n"
+        f"👤 User #{target_user_id}\n"
+        f"Имя: {target['full_name'] or '-'}\n"
+        f"Было: {old_role or '-'}\n"
+        f"Стало: {role_names.get(role, role)}\n\n"
+        f"Пользователю надо отправить /menu"
+    )
+
+
+
 async def auditcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -11017,6 +11113,7 @@ def main():
     app.add_handler(CommandHandler("dashboard", dashboard))
     app.add_handler(CommandHandler("monetization", monetization))
     app.add_handler(CommandHandler("setplan", setplan))
+    app.add_handler(CommandHandler("setrole", setrole))
     app.add_handler(CommandHandler("tariffs", tariffs_cmd))
     app.add_handler(CommandHandler("setprice", setprice))
 
