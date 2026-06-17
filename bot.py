@@ -3322,7 +3322,8 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("⚠️ Жалобаы", callback_data="admin_panel_disputes"),
          InlineKeyboardButton("💳 Тарифы", callback_data="admin_tariffs")],
         [InlineKeyboardButton("🚩 Жалобы", callback_data="admin_panel_reports"),
-         InlineKeyboardButton("🔔 Маршруты", callback_data="admin_panel_routes")]
+         InlineKeyboardButton("🔔 Маршруты", callback_data="admin_panel_routes")],
+        [InlineKeyboardButton("⚖️ Аудит", callback_data="admin_panel_audit")]
     ])
 
     await update.message.reply_text(text, reply_markup=kb)
@@ -3447,6 +3448,51 @@ async def tariff_price_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def admin_audit_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    user_id = await ensure_user(q.from_user)
+
+    if not await is_admin_user(user_id):
+        await q.message.reply_text("⛔ Доступ только для администратора")
+        return
+
+    rows = await DB.fetch("""
+        SELECT id, user_id, action, deal_id, cargo_id, payload, created_at
+        FROM audit_log
+        ORDER BY id DESC
+        LIMIT 15
+    """)
+
+    if not rows:
+        await q.message.reply_text("📭 Журнал аудита пока пуст")
+        return
+
+    lines = [
+        "⚖️ Последние записи audit_log\n",
+        "Команды для подробного просмотра:",
+        "/auditcargo 14",
+        "/auditdeal 10\n",
+    ]
+
+    for r in rows:
+        lines.append(
+            f"#{r['id']} — {r['action']}\n"
+            f"👤 user_id: {r['user_id'] or '-'}\n"
+            f"📦 cargo_id: {r['cargo_id'] or '-'}\n"
+            f"🤝 deal_id: {r['deal_id'] or '-'}\n"
+            f"🕒 {r['created_at']}\n"
+            f"📌 {r['payload'] or {}}\n"
+        )
+
+    text = "\n".join(lines)
+
+    if len(text) > 3900:
+        text = text[:3900] + "\n...обрезано"
+
+    await q.message.reply_text(text)
+
+
+
 async def admin_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
@@ -3495,6 +3541,9 @@ async def admin_panel_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     if data == "admin_panel_reports":
         return await adminreports(fake_update, context)
+
+    if data == "admin_panel_audit":
+        return await admin_audit_panel(update, context)
 
     if data == "admin_panel_routes":
         return await mysubs(fake_update, context)
