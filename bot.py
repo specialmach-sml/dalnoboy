@@ -10558,6 +10558,11 @@ async def menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ Ваш аккаунт заблокирован")
         return
 
+    user_id = await ensure_user(update.effective_user)
+
+    if not await has_required_legal_consents(user_id):
+        return await consent_command(update, context)
+
     if not verified:
         keyboard = [
             [InlineKeyboardButton("📝 Подать заявку", callback_data="access_request")],
