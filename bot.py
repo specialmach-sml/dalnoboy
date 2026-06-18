@@ -2785,6 +2785,27 @@ async def has_required_legal_consents(user_id: int) -> bool:
 
 
 
+async def require_legal_for_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
+    q = update.callback_query
+    user_id = await ensure_user(q.from_user)
+
+    if await has_required_legal_consents(user_id):
+        return True
+
+    kb = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ Принимаю условия", callback_data="legal_consent_accept")],
+        [InlineKeyboardButton("❌ Не принимаю", callback_data="legal_consent_decline")]
+    ])
+
+    await q.message.reply_text(
+        "⚖️ Перед использованием сервиса нужно принять условия.\n\n"
+        "Отправьте /consent или нажмите кнопку ниже.",
+        reply_markup=kb
+    )
+    return False
+
+
+
 async def consent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
