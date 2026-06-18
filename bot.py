@@ -10642,6 +10642,20 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    user_id = await ensure_user(q.from_user)
+
+    if not await has_required_legal_consents(user_id):
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Принимаю условия", callback_data="legal_consent_accept")],
+            [InlineKeyboardButton("❌ Не принимаю", callback_data="legal_consent_decline")]
+        ])
+        await q.message.reply_text(
+            "⚖️ Перед использованием сервиса нужно принять условия.\n\n"
+            "Отправьте /consent или нажмите кнопку ниже.",
+            reply_markup=kb
+        )
+        return
+
     fake_update = Update(update.update_id, message=q.message)
 
     if q.data == "menu_today":
