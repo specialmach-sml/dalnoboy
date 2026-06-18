@@ -3200,6 +3200,9 @@ async def cargo_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     cargo_id = int(q.data.split("_")[2])
     user_id = await ensure_user(q.from_user)
 
@@ -3274,6 +3277,9 @@ async def cargo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     cargo_id = int(q.data.split("_")[2])
     user_id = await ensure_user(q.from_user)
 
@@ -3341,6 +3347,9 @@ async def cargo_cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cargo_open(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     cargo_id = int(q.data.split("_")[2])
     user_id = await ensure_user(q.from_user)
@@ -5578,6 +5587,9 @@ async def cargo_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     cargo_id = int(q.data.split("_")[-1])
     link = f"https://t.me/dalnoboybros_bot?start=cargo_{cargo_id}"
 
@@ -5589,6 +5601,9 @@ async def cargo_link(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cargo_share(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     cargo_id = int(q.data.split("_")[-1])
 
@@ -5625,6 +5640,9 @@ async def cargo_share(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def respond(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     selected_truck_id = None
 
