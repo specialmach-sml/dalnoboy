@@ -6599,6 +6599,9 @@ async def deal_closedispute_button(update: Update, context: ContextTypes.DEFAULT
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     user_id = await ensure_user(q.from_user)
     deal_id = int(q.data.split("_")[2])
 
@@ -6647,6 +6650,9 @@ async def deal_closedispute_button(update: Update, context: ContextTypes.DEFAULT
 async def deal_dispute_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     user_id = await ensure_user(q.from_user)
     deal_id = int(q.data.split("_")[2])
@@ -6983,6 +6989,9 @@ async def deal_chat_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     deal_id = int(q.data.split("_")[2])
     context.user_data["chat_deal_id"] = deal_id
 
@@ -7182,6 +7191,9 @@ async def deal_report_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     deal_id = int(q.data.split("_")[-1])
 
     fake_update = Update(update.update_id, message=q.message)
@@ -7193,6 +7205,9 @@ async def deal_report_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
 async def deal_timeline_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     deal_id = int(q.data.split("_")[-1])
 
@@ -7371,6 +7386,9 @@ async def dealact(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def deal_act_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     deal_id = int(q.data.split("_")[-1])
     fake_update = Update(update.update_id, message=q.message)
@@ -7795,6 +7813,9 @@ async def dealtimeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     raw = q.data.replace("deal_", "", 1)
     status, deal_id_raw = raw.rsplit("_", 1)
