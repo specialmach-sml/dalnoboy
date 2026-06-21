@@ -1517,6 +1517,9 @@ async def truck_partial_toggle(update: Update, context: ContextTypes.DEFAULT_TYP
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     user_id = await ensure_user(q.from_user)
     truck_id = int(q.data.split("_")[2])
 
@@ -1550,6 +1553,9 @@ async def truck_partial_toggle(update: Update, context: ContextTypes.DEFAULT_TYP
 async def truck_add_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     user_id = await ensure_user(q.from_user)
 
@@ -1599,6 +1605,9 @@ async def truck_add_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def truck_photo_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     context.user_data["awaiting_truck_photo"] = True
 
@@ -1671,6 +1680,9 @@ async def truck_photo_message(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def truck_edit_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     field = q.data.replace("truck_edit_", "")
 
@@ -1841,6 +1853,9 @@ async def truck_geo_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     kb = ReplyKeyboardMarkup(
         [[KeyboardButton("📍 Отправить GEO", request_location=True)]],
         resize_keyboard=True,
@@ -1856,6 +1871,9 @@ async def truck_geo_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def truck_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     truck_id = int(q.data.split("_")[2])
     user_id = await ensure_user(q.from_user)
@@ -1924,6 +1942,9 @@ async def truck_refresh(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def truck_hide(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     truck_id = int(q.data.split("_")[2])
     user_id = await ensure_user(q.from_user)
@@ -5361,6 +5382,9 @@ async def driver_profile_button(update: Update, context: ContextTypes.DEFAULT_TY
 async def truck_deal_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     user_id = await ensure_user(q.from_user)
 
@@ -9660,7 +9684,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         if not truck:
             return await truck_start(update, context)
 
-        return await mytruck(update, context)
+        return await mytrucks_list(update, context)
     if text == "📨 Отклики":
         kb = InlineKeyboardMarkup([
             [InlineKeyboardButton("📨 Мои отклики", callback_data="menu_myresponses")],
@@ -11158,7 +11182,6 @@ def main():
     truck_handler = ConversationHandler(
         entry_points=[
             CommandHandler("newtruck", truck_start),
-            MessageHandler(filters.Regex("^🚚 Машина$"), truck_start),
         ],
         states={
             TRUCK_CITY: [MessageHandler(filters.TEXT & ~filters.COMMAND, truck_city)],
