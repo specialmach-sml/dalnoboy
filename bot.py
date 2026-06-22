@@ -5490,6 +5490,9 @@ async def create_deal_button(update: Update, context: ContextTypes.DEFAULT_TYPE)
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     user_id = await ensure_user(q.from_user)
 
     parts = q.data.split("_")
@@ -6329,6 +6332,9 @@ async def emit_response_status(response_id, status, cargo_id=None, truck_id=None
 async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     action, response_id_raw = q.data.split("_")
     response_id = int(response_id_raw)
