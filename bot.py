@@ -6848,6 +6848,9 @@ async def deal_reason_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     deal_id = int(q.data.split("_")[3])
 
     await q.message.reply_text(
@@ -6859,6 +6862,9 @@ async def deal_reason_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def deal_write_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     deal_id = int(q.data.split("_")[3])
 
@@ -6873,6 +6879,9 @@ async def deal_write_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def deal_docs_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     parts = q.data.split("_")
 
@@ -6953,6 +6962,9 @@ async def deal_docs_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def deal_open_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     doc_id = int(q.data.split("_")[-1])
 
@@ -7092,6 +7104,9 @@ async def deal_document_message(update: Update, context: ContextTypes.DEFAULT_TY
 async def deal_history_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     deal_id = int(q.data.split("_")[2])
     fake_update = Update(update.update_id, message=q.message)
@@ -8320,6 +8335,9 @@ async def newcargo_button_start(update: Update, context: ContextTypes.DEFAULT_TY
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     tg_user = q.from_user
     user_id = await ensure_user(tg_user)
 
@@ -8846,6 +8864,9 @@ async def settings_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def settings_buttons(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     if q.data == "settings_rate":
         context.user_data["awaiting_rate"] = True
