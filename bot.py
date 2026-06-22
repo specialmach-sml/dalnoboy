@@ -8075,6 +8075,9 @@ async def review_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     deal_id = int(q.data.split("_")[1])
 
     kb = InlineKeyboardMarkup([
@@ -8097,6 +8100,9 @@ async def review_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def rate_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     parts = q.data.split("_")
 
