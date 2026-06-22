@@ -6597,6 +6597,8 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "loading": [InlineKeyboardButton("📦 Загружен", callback_data=f"deal_loaded_{r['id']}")],
                 "loaded": [InlineKeyboardButton("🚛 В пути", callback_data=f"deal_in_progress_{r['id']}")],
                 "in_progress": [InlineKeyboardButton("🏁 Доставлен", callback_data=f"deal_delivered_{r['id']}")],
+                "breakdown": [InlineKeyboardButton("🚛 Продолжить движение", callback_data=f"deal_resume_movement_{r['id']}")],
+                "resume_movement": [InlineKeyboardButton("🏁 Доставлен", callback_data=f"deal_delivered_{r['id']}")],
                 "delivered": [InlineKeyboardButton("⏳ Ожидаем принятия заказчиком", callback_data="noop")],
                 "done": [InlineKeyboardButton("⏳ Ожидаем принятия заказчиком", callback_data="noop")]
             }
@@ -6611,6 +6613,9 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 buttons.append([InlineKeyboardButton("❌ Сделка отменена", callback_data="noop")])
             else:
                 buttons.append([InlineKeyboardButton("🚚 Еду на загрузку", callback_data=f"deal_to_pickup_{r['id']}")])
+
+            if r["status"] not in ("closed", "cancelled", "done", "delivered", "breakdown"):
+                buttons.append([InlineKeyboardButton("⚠️ Поломка", callback_data=f"deal_breakdown_{r['id']}")])
 
             if r["status"] not in ("closed", "cancelled", "done", "delivered"):
                 buttons.append([InlineKeyboardButton("❌ Отменить", callback_data=f"deal_cancelled_{r['id']}")])
@@ -7312,6 +7317,8 @@ async def deal_timeline_button(update: Update, context: ContextTypes.DEFAULT_TYP
         "loading": "📍 На загрузке",
         "loaded": "📦 Загружен",
         "in_progress": "🚚 В пути",
+        "breakdown": "⚠️ Поломка",
+        "resume_movement": "🚛 Продолжил движение",
         "done": "✅ Доставлено",
         "delivered": "🏁 Доставлен",
         "closed": "✅ Рейс закрыт",
@@ -7807,6 +7814,8 @@ async def dealreport(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "loading": "На загрузке",
         "loaded": "Загружен",
         "in_progress": "В пути",
+        "breakdown": "Поломка",
+        "resume_movement": "Продолжил движение",
         "done": "Доставлено",
         "delivered": "Доставлен",
         "cancelled": "Отменено"
@@ -7873,6 +7882,8 @@ async def dealtimeline(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "loading": "📍 На загрузке",
         "loaded": "📦 Загружен",
         "in_progress": "🚚 В пути",
+        "breakdown": "⚠️ Поломка",
+        "resume_movement": "🚛 Продолжил движение",
         "done": "✅ Доставлено",
         "delivered": "🏁 Доставлен",
         "cancelled": "❌ Отменено"
@@ -7965,6 +7976,8 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "loading": "in_progress",
         "loaded": "in_progress",
         "in_progress": "in_progress",
+        "breakdown": "in_progress",
+        "resume_movement": "in_progress",
         "done": "done",
         "delivered": "done",
         "closed": "done",
@@ -7985,6 +7998,8 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "loading": "📍 На загрузке",
         "loaded": "📦 Загружен",
         "in_progress": "🚚 В пути",
+        "breakdown": "⚠️ Поломка",
+        "resume_movement": "🚛 Продолжил движение",
         "done": "✅ Доставлено",
         "delivered": "🏁 Доставлен",
         "closed": "✅ Рейс закрыт",
