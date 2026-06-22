@@ -2900,6 +2900,65 @@ async def require_legal_for_callback(update: Update, context: ContextTypes.DEFAU
 
 
 
+
+async def login_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    Одноразовый код входа в будущий веб/мобильный кабинет.
+    Код действует 10 минут.
+    """
+    tg_user = update.effective_user
+    if not tg_user:
+        return
+
+    user_id = await ensure_user(tg_user)
+
+    if not await has_required_legal_consents(user_id):
+        await update.message.reply_text(
+            "⚖️ Для входа в кабинет нужно сначала принять условия сервиса.\n\n"
+            "Нажмите /consent"
+        )
+        return
+
+    secrets = __import__("secrets")
+    code = str(secrets.randbelow(90000000) + 10000000)
+
+    # Старые неиспользованные коды этого пользователя гасим
+    await DB.execute("""
+        UPDATE app_login_codes
+        SET used_at = now()
+        WHERE user_id = $1
+          AND used_at IS NULL
+    """, user_id)
+
+    await DB.execute("""
+        INSERT INTO app_login_codes (
+            user_id,
+            telegram_id,
+            code,
+            source,
+            expires_at
+        )
+        VALUES ($1, $2, $3, 'telegram_bot', now() + interval '10 minutes')
+    """, user_id, tg_user.id, code)
+
+    await audit(
+        user_id,
+        "app_login_code_created",
+        payload={
+            "source": "telegram_bot",
+            "expires_minutes": 10
+        }
+    )
+
+    await update.message.reply_text(
+        "🔐 Код входа в кабинет:\n\n"
+        f"`{code}`\n\n"
+        "⏱ Действует 10 минут.\n"
+        "Никому не передавайте этот код.",
+        parse_mode="Markdown"
+    )
+
+
 async def consent_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = await ensure_user(update.effective_user)
 
@@ -11354,6 +11413,7 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler))
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("consent", consent_command))
+    app.add_handler(CommandHandler("login", login_command))
     app.add_handler(CallbackQueryHandler(legal_consent_button, pattern="^legal_consent_"))
     app.add_handler(CallbackQueryHandler(settings_buttons, pattern="^settings_"), group=-10)
     app.add_handler(CommandHandler("cargo", cargo))
