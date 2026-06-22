@@ -545,6 +545,9 @@ async def subroute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     user_id = await ensure_user(q.from_user)
 
     cargo_id = int(q.data.split("_")[1])
@@ -2516,6 +2519,9 @@ async def user_profile_button(update: Update, context: ContextTypes.DEFAULT_TYPE
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     user_id = int(q.data.split("_")[2])
 
     user = await DB.fetchrow("""
@@ -2599,6 +2605,9 @@ async def user_profile_button(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def profile_reviews(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     user_id = int(q.data.split("_")[2])
 
@@ -5412,6 +5421,9 @@ async def findtruck(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def driver_profile_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     truck_id = int(q.data.split("_")[2])
 
