@@ -599,6 +599,9 @@ async def sub_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     user_id = await ensure_user(q.from_user)
     sub_id = int(q.data.split("_")[2])
 
@@ -627,6 +630,9 @@ async def sub_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def sub_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     user_id = await ensure_user(q.from_user)
     sub_id = int(q.data.split("_")[2])
@@ -657,6 +663,9 @@ async def sub_on(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def sub_off(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     user_id = await ensure_user(q.from_user)
     sub_id = int(q.data.split("_")[2])
