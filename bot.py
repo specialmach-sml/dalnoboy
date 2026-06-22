@@ -3174,6 +3174,9 @@ async def cargo_promo_request(update: Update, context: ContextTypes.DEFAULT_TYPE
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     user_id = await ensure_user(q.from_user)
 
     parts = q.data.split("_")
@@ -3227,6 +3230,9 @@ async def cargo_promo_request(update: Update, context: ContextTypes.DEFAULT_TYPE
 async def cargo_clone(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     cargo_id = int(q.data.split("_")[2])
     user_id = await ensure_user(q.from_user)
@@ -3507,6 +3513,9 @@ async def cargo_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
 
+    if not await require_legal_for_callback(update, context):
+        return
+
     cargo_id = int(q.data.split("_")[1])
 
     user_id = await ensure_user(q.from_user)
@@ -3539,6 +3548,9 @@ async def cargo_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cargo_delete(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     cargo_id = int(q.data.split("_")[2])
     user_id = await ensure_user(q.from_user)
@@ -5207,6 +5219,9 @@ async def deletedcargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cargo_restore(update: Update, context: ContextTypes.DEFAULT_TYPE):
     q = update.callback_query
     await q.answer()
+
+    if not await require_legal_for_callback(update, context):
+        return
 
     cargo_id = int(q.data.split("_")[2])
     user_id = await ensure_user(q.from_user)
