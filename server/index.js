@@ -6,6 +6,7 @@ const express = require("express");
 const http = require("http");
 const cors = require("cors");
 const { Pool } = require("pg");
+const crypto = require("crypto");
 const { Server } = require("socket.io");
 
 const app = express();
@@ -71,6 +72,180 @@ app.delete("/orders/:id", async (req, res) => {
   res.json({ success: true });
 });
 
+
+
+
+
+app.post("/api/app/login", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { code } = req.body || {};
+
+    if (!code || String(code).trim().length < 4) {
+      return res.status(400).json({
+        success: false,
+        error: "code required"
+      });
+    }
+
+    await client.query("BEGIN");
+
+    const codeResult = await client.query(
+      `
+      SELECT
+        c.id AS code_id,
+        c.user_id,
+        c.telegram_id,
+        c.expires_at,
+        c.used_at,
+        u.full_name,
+        u.role,
+        u.plan_type,
+        u.verified,
+        u.banned
+      FROM app_login_codes c
+      JOIN users u ON u.id = c.user_id
+      WHERE c.code = $1
+      LIMIT 1
+      `,
+      [String(code).trim()]
+    );
+
+    if (!codeResult.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({
+        success: false,
+        error: "invalid code"
+      });
+    }
+
+    const row = codeResult.rows[0];
+
+    if (row.used_at) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({
+        success: false,
+        error: "code already used"
+      });
+    }
+
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({
+        success: false,
+        error: "code expired"
+      });
+    }
+
+    if (row.banned) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        success: false,
+        error: "user banned"
+      });
+    }
+
+    const consentResult = await client.query(
+      `
+      SELECT COUNT(*)::int AS cnt
+      FROM user_consents
+      WHERE user_id = $1
+        AND revoked_at IS NULL
+        AND consent_type IN (
+          'user_agreement',
+          'privacy_policy',
+          'personal_data_consent',
+          'geo_consent'
+        )
+      `,
+      [row.user_id]
+    );
+
+    if (consentResult.rows[0].cnt < 4) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        success: false,
+        error: "legal consent required"
+      });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    await client.query(
+      `
+      INSERT INTO app_sessions (
+        user_id,
+        telegram_id,
+        token_hash,
+        user_agent,
+        ip_address,
+        expires_at
+      )
+      VALUES ($1, $2, $3, $4, $5, now() + interval '30 days')
+      `,
+      [
+        row.user_id,
+        row.telegram_id,
+        tokenHash,
+        req.headers["user-agent"] || null,
+        req.ip || null
+      ]
+    );
+
+    await client.query(
+      `
+      UPDATE app_login_codes
+      SET used_at = now()
+      WHERE id = $1
+      `,
+      [row.code_id]
+    );
+
+    await client.query(
+      `
+      INSERT INTO audit_log (user_id, action, payload)
+      VALUES ($1, 'app_login_success', $2::jsonb)
+      `,
+      [
+        row.user_id,
+        JSON.stringify({
+          source: "api",
+          user_agent: req.headers["user-agent"] || null
+        })
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    return res.json({
+      success: true,
+      token,
+      user: {
+        id: row.user_id,
+        telegram_id: row.telegram_id,
+        full_name: row.full_name,
+        role: row.role,
+        plan_type: row.plan_type,
+        verified: row.verified
+      }
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("app login error", err);
+
+    return res.status(500).json({
+      success: false,
+      error: "server error"
+    });
+  } finally {
+    client.release();
+  }
+});
 
 
 app.post("/api/location", async (req, res) => {
