@@ -248,6 +248,97 @@ app.post("/api/app/login", async (req, res) => {
 });
 
 
+
+
+app.get("/api/app/me", async (req, res) => {
+  try {
+    const auth = req.headers.authorization || "";
+
+    if (!auth.startsWith("Bearer ")) {
+      return res.status(401).json({
+        success: false,
+        error: "token required"
+      });
+    }
+
+    const token = auth.slice(7).trim();
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        error: "token required"
+      });
+    }
+
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    const result = await pool.query(
+      `
+      SELECT
+        s.id AS session_id,
+        s.user_id,
+        s.telegram_id,
+        s.expires_at,
+        u.full_name,
+        u.role,
+        u.plan_type,
+        u.verified,
+        u.banned
+      FROM app_sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = $1
+        AND s.revoked_at IS NULL
+        AND s.expires_at > now()
+      LIMIT 1
+      `,
+      [tokenHash]
+    );
+
+    if (!result.rows.length) {
+      return res.status(401).json({
+        success: false,
+        error: "invalid session"
+      });
+    }
+
+    const row = result.rows[0];
+
+    if (row.banned) {
+      return res.status(403).json({
+        success: false,
+        error: "user banned"
+      });
+    }
+
+    return res.json({
+      success: true,
+      user: {
+        id: row.user_id,
+        telegram_id: row.telegram_id,
+        full_name: row.full_name,
+        role: row.role,
+        plan_type: row.plan_type,
+        verified: row.verified
+      },
+      session: {
+        id: row.session_id,
+        expires_at: row.expires_at
+      }
+    });
+  } catch (err) {
+    console.error("app me error", err);
+
+    return res.status(500).json({
+      success: false,
+      error: "server error"
+    });
+  }
+});
+
+
 app.post("/api/location", async (req, res) => {
   try {
     const { telegram_id, lat, lon } = req.body;
