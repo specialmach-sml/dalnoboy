@@ -26,6 +26,7 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 .hint{color:#94a3b8;font-size:13px;margin-top:8px;text-align:center}
 .detailBox{display:none;margin-top:14px;background:#020617;border:1px solid #38bdf8;border-radius:14px;padding:12px}
 .badge{display:inline-block;padding:3px 8px;border-radius:999px;background:#334155;color:#e5e7eb;font-size:12px;margin-top:6px}
+.moreBtn{margin-top:8px;padding:8px;border-radius:10px;background:#38bdf8;color:#082f49;border:0;font-weight:800;cursor:pointer;font-size:13px}
 .actionBtn{width:100%;border:0;font-size:15px;cursor:pointer}
 .filterBar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .filterBtn{padding:9px;border-radius:10px;background:#334155;color:#e5e7eb;border:0;font-size:13px;cursor:pointer}
@@ -51,8 +52,8 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 </div>
 
 <div id="actions" class="actions"></div>
-<div id="cargoList" class="cargoBox"></div>
 <div id="cargoDetail" class="detailBox"></div>
+<div id="cargoList" class="cargoBox"></div>
 <div id="cargoHint" class="hint">Нажмите на груз, чтобы открыть подробности</div>
 
 <div id="status" class="status">Готово к входу.</div>
@@ -61,6 +62,13 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 <script>
 const statusBox=document.getElementById("status");
 function status(t){statusBox.textContent=t}
+
+document.getElementById("cargoList").addEventListener("click", function(e){
+ const item=e.target.closest("[data-cargo-id]");
+ if(item){
+   showCargoDetail(item.dataset.cargoId);
+ }
+});
 
 function renderActions(role){
  const box=document.getElementById("actions");
@@ -151,7 +159,7 @@ function renderCargoList(){
  }
 
  box.innerHTML=filters+list.map(c=>`
-   <div class="cargoItem">
+   <div class="cargoItem" data-cargo-id="${esc(c.id)}">
      <div class="cargoTitle">#${esc(c.id)} ${esc(c.from_city)} → ${esc(c.to_city)}</div>
      <div class="cargoMeta">
        ${esc(c.description || "Без описания")}<br>
@@ -159,7 +167,7 @@ function renderCargoList(){
        ${c.distance_km ? " · 🛣 "+esc(c.distance_km)+" км" : ""}
        ${c.rate_per_km ? " · "+esc(c.rate_per_km)+" ₽/км" : ""}
      </div>
-     <span class="badge">${esc(humanStatus(c.status))}</span>
+     <span class="badge">${esc(humanStatus(c.status))}</span><button class="moreBtn" data-cargo-id="${esc(c.id)}">Подробнее</button>
    </div>
  `).join("");
 }
