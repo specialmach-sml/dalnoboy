@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Дальнобой — кабинет</title>
+<style>
+body{margin:0;font-family:Arial;background:#0f172a;color:#e5e7eb;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+.card{max-width:420px;width:100%;background:#111827;border:1px solid #334155;border-radius:18px;padding:22px}
+input,button{width:100%;padding:14px;border-radius:12px;margin-top:12px;font-size:18px}
+input{background:#020617;color:white;border:1px solid #475569;letter-spacing:2px}
+button{background:#22c55e;color:#052e16;border:0;font-weight:700}
+.status,.profile{margin-top:14px;background:#020617;border:1px solid #334155;border-radius:12px;padding:12px;white-space:pre-wrap}
+.profile{display:none}
+.row{display:flex;justify-content:space-between;border-bottom:1px solid #1e293b;padding:7px 0}
+</style>
+</head>
+<body>
+<div class="card">
+<h2>🚛 Дальнобой</h2>
+<p>Напишите в Telegram-боте <b>/login</b>, получите код и введите его здесь.</p>
+
+<div id="loginBox">
+<input id="code" placeholder="12345678" inputmode="numeric">
+<button onclick="login()">Войти</button>
+</div>
+
+<div id="profile" class="profile">
+<div class="row"><span>Имя</span><span id="fullName">—</span></div>
+<div class="row"><span>Роль</span><span id="role">—</span></div>
+<div class="row"><span>Тариф</span><span id="plan">—</span></div>
+<div class="row"><span>Telegram</span><span id="telegramId">—</span></div>
+<button onclick="logout()">Выйти</button>
+</div>
+
+<div id="status" class="status">Готово к входу.</div>
+</div>
+
+<script>
+const statusBox=document.getElementById("status");
+function status(t){statusBox.textContent=t}
+function show(data){
+ document.getElementById("loginBox").style.display="none";
+ document.getElementById("profile").style.display="block";
+ fullName.textContent=data.user.full_name||"—";
+ role.textContent=data.user.role||"—";
+ plan.textContent=data.user.plan_type||"—";
+ telegramId.textContent=data.user.telegram_id||"—";
+ status("✅ Вход выполнен");
+}
+async function login(){
+ const code=document.getElementById("code").value.trim();
+ if(!code){status("Введите код");return}
+ const r=await fetch("/api/app/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})});
+ const d=await r.json();
+ if(!d.success){status("❌ "+(d.error||"Ошибка входа"));return}
+ localStorage.setItem("dalnoboy_token",d.token);
+ show(d);
+}
+async function check(){
+ const token=localStorage.getItem("dalnoboy_token");
+ if(!token)return;
+ const r=await fetch("/api/app/me",{headers:{Authorization:"Bearer "+token}});
+ const d=await r.json();
+ if(!d.success){localStorage.removeItem("dalnoboy_token");return}
+ show(d);
+}
+function logout(){localStorage.removeItem("dalnoboy_token");location.reload()}
+check();
+</script>
+</body>
+</html>
