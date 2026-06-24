@@ -27,6 +27,9 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 .detailBox{display:none;margin-top:14px;background:#020617;border:1px solid #38bdf8;border-radius:14px;padding:12px}
 .badge{display:inline-block;padding:3px 8px;border-radius:999px;background:#334155;color:#e5e7eb;font-size:12px;margin-top:6px}
 .moreBtn{margin-top:8px;padding:8px;border-radius:10px;background:#38bdf8;color:#082f49;border:0;font-weight:800;cursor:pointer;font-size:13px}
+.cargoDetails{margin-top:8px;background:#020617;border:1px solid #38bdf8;border-radius:12px;padding:10px}
+.cargoDetails summary{cursor:pointer;font-weight:800;color:#38bdf8}
+.cargoDetailsBody{margin-top:10px;color:#cbd5e1;font-size:13px;line-height:1.5}
 .actionBtn{width:100%;border:0;font-size:15px;cursor:pointer}
 .filterBar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .filterBtn{padding:9px;border-radius:10px;background:#334155;color:#e5e7eb;border:0;font-size:13px;cursor:pointer}
@@ -159,7 +162,7 @@ function renderCargoList(){
  }
 
  box.innerHTML=filters+list.map(c=>`
-   <div class="cargoItem" data-cargo-id="${esc(c.id)}">
+   <div class="cargoItem">
      <div class="cargoTitle">#${esc(c.id)} ${esc(c.from_city)} → ${esc(c.to_city)}</div>
      <div class="cargoMeta">
        ${esc(c.description || "Без описания")}<br>
@@ -167,7 +170,18 @@ function renderCargoList(){
        ${c.distance_km ? " · 🛣 "+esc(c.distance_km)+" км" : ""}
        ${c.rate_per_km ? " · "+esc(c.rate_per_km)+" ₽/км" : ""}
      </div>
-     <span class="badge">${esc(humanStatus(c.status))}</span><button class="moreBtn" data-cargo-id="${esc(c.id)}">Подробнее</button>
+     <span class="badge">${esc(humanStatus(c.status))}</span>
+      <details class="cargoDetails">
+        <summary>Подробнее</summary>
+        <div class="cargoDetailsBody">
+          <b>Маршрут:</b><br>${esc(c.from_city)} → ${esc(c.to_city)}<br><br>
+          <b>Описание:</b><br>${esc(c.description || "Без описания")}<br><br>
+          <b>Цена:</b> ${esc(c.price_amount)} ${esc(c.price_currency || "RUB")}<br>
+          <b>Расстояние:</b> ${esc(c.distance_km || "—")} км<br>
+          <b>Ставка:</b> ${esc(c.rate_per_km || "—")} ₽/км<br>
+          <b>Статус:</b> ${esc(humanStatus(c.status))}
+        </div>
+      </details>
    </div>
  `).join("");
 }
