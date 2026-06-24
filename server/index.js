@@ -339,6 +339,80 @@ app.get("/api/app/me", async (req, res) => {
 });
 
 
+
+
+app.get("/api/app/my-cargo", async (req, res) => {
+  try {
+    const auth = req.headers.authorization || "";
+
+    if (!auth.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, error: "token required" });
+    }
+
+    const token = auth.slice(7).trim();
+
+    if (!token) {
+      return res.status(401).json({ success: false, error: "token required" });
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    const sessionResult = await pool.query(
+      `
+      SELECT s.user_id, u.role, u.plan_type, u.banned
+      FROM app_sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = $1
+        AND s.revoked_at IS NULL
+        AND s.expires_at > now()
+      LIMIT 1
+      `,
+      [tokenHash]
+    );
+
+    if (!sessionResult.rows.length) {
+      return res.status(401).json({ success: false, error: "invalid session" });
+    }
+
+    const user = sessionResult.rows[0];
+
+    if (user.banned) {
+      return res.status(403).json({ success: false, error: "user banned" });
+    }
+
+    const cargoResult = await pool.query(
+      `
+      SELECT
+        id,
+        from_city,
+        to_city,
+        description,
+        status,
+        ROUND(price_amount::numeric, 0)::text AS price_amount,
+        price_currency,
+        CASE WHEN distance_km IS NULL THEN NULL ELSE ROUND(distance_km::numeric, 1)::text END AS distance_km,
+        CASE WHEN rate_per_km IS NULL THEN NULL ELSE ROUND(rate_per_km::numeric, 2)::text END AS rate_per_km,
+        cargo_type,
+        created_at
+      FROM cargo
+      WHERE created_by = $1
+      ORDER BY id DESC
+      LIMIT 100
+      `,
+      [user.user_id]
+    );
+
+    return res.json({
+      success: true,
+      cargo: cargoResult.rows
+    });
+  } catch (err) {
+    console.error("app my-cargo error", err);
+    return res.status(500).json({ success: false, error: "server error" });
+  }
+});
+
+
 app.post("/api/location", async (req, res) => {
   try {
     const { telegram_id, lat, lon } = req.body;
