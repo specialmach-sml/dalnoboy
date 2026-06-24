@@ -199,6 +199,34 @@ async function loadMyCargo(){
  renderCargoList();
 }
 
+
+function showCargoDetail(id){
+ const box=document.getElementById("cargoDetail");
+ const c=appCargo.find(x=>String(x.id)===String(id));
+
+ if(!c){
+   status("❌ Груз не найден");
+   return;
+ }
+
+ box.style.display="block";
+ box.innerHTML=
+   "<b>📦 Груз #"+esc(c.id)+"</b><br><br>"+
+   "<b>Маршрут:</b><br>"+esc(c.from_city)+" → "+esc(c.to_city)+"<br><br>"+
+   "<b>Описание:</b><br>"+esc(c.description || "Без описания")+"<br><br>"+
+   "<b>Цена:</b> "+esc(c.price_amount)+" "+esc(c.price_currency || "RUB")+"<br>"+
+   "<b>Расстояние:</b> "+esc(c.distance_km || "—")+" км<br>"+
+   "<b>Ставка:</b> "+esc(c.rate_per_km || "—")+" ₽/км<br>"+
+   "<b>Статус:</b> "+esc(humanStatus(c.status))+"<br><br>"+
+   '<button onclick="hideCargoDetail()">Закрыть</button>';
+}
+
+function hideCargoDetail(){
+ const box=document.getElementById("cargoDetail");
+ box.style.display="none";
+ box.innerHTML="";
+}
+
 function show(data){
  document.getElementById("loginBox").style.display="none";
  document.getElementById("profile").style.display="block";
