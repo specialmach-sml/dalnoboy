@@ -13,6 +13,11 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 .status,.profile{margin-top:14px;background:#020617;border:1px solid #334155;border-radius:12px;padding:12px;white-space:pre-wrap}
 .profile{display:none}
 .row{display:flex;justify-content:space-between;border-bottom:1px solid #1e293b;padding:7px 0}
+
+.actions{display:none;margin-top:14px}
+.actionBtn{display:block;text-align:center;text-decoration:none;background:#334155;color:#e5e7eb;padding:12px;border-radius:12px;margin-top:10px;font-weight:700}
+.actionBtn.green{background:#22c55e;color:#052e16}
+.actionBtn.blue{background:#38bdf8;color:#082f49}
 </style>
 </head>
 <body>
@@ -33,12 +38,41 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 <button onclick="logout()">Выйти</button>
 </div>
 
+<div id="actions" class="actions"></div>
+
 <div id="status" class="status">Готово к входу.</div>
 </div>
 
 <script>
 const statusBox=document.getElementById("status");
 function status(t){statusBox.textContent=t}
+
+function renderActions(role){
+ const box=document.getElementById("actions");
+ let html="";
+ if(role==="shipper"){
+   html += '<a class="actionBtn green" href="/map.html">🗺 Карта грузов</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">➕ Создать груз в боте</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">🤝 Сделки в боте</a>';
+ } else if(role==="carrier"){
+   html += '<a class="actionBtn green" href="/map.html">🗺 Карта грузов</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">🚚 Моя машина</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">📦 Найти грузы</a>';
+ } else if(role==="dispatcher"){
+   html += '<a class="actionBtn blue" href="/dispatcher/">👥 Кабинет диспетчера</a>';
+   html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
+ } else if(role==="admin"){
+   html += '<a class="actionBtn blue" href="/dispatcher/">👥 Диспетчерская</a>';
+   html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">🛡 Админ в боте</a>';
+ } else {
+   html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">Открыть бота</a>';
+ }
+ box.innerHTML=html;
+ box.style.display="block";
+}
+
 function show(data){
  document.getElementById("loginBox").style.display="none";
  document.getElementById("profile").style.display="block";
@@ -47,6 +81,7 @@ function show(data){
  plan.textContent=data.user.plan_type||"—";
  telegramId.textContent=data.user.telegram_id||"—";
  status("✅ Вход выполнен");
+ renderActions(data.user.role);
 }
 async function login(){
  const code=document.getElementById("code").value.trim();
