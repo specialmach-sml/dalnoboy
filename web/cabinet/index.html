@@ -25,6 +25,9 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 .cargoMeta{color:#94a3b8;font-size:13px;line-height:1.45}
 .badge{display:inline-block;padding:3px 8px;border-radius:999px;background:#334155;color:#e5e7eb;font-size:12px;margin-top:6px}
 .actionBtn{width:100%;border:0;font-size:15px;cursor:pointer}
+.filterBar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+.filterBtn{padding:9px;border-radius:10px;background:#334155;color:#e5e7eb;border:0;font-size:13px;cursor:pointer}
+.filterBtn.active{background:#38bdf8;color:#082f49;font-weight:800}
 </style>
 </head>
 <body>
@@ -104,6 +107,59 @@ function humanStatus(v){
  return m[v] || v || "—";
 }
 
+
+let appCargo=[];
+let cargoFilter="all";
+
+function isCargoVisible(c){
+ const st=c.status || "";
+ if(cargoFilter==="all") return true;
+ if(cargoFilter==="open") return st==="open";
+ if(cargoFilter==="work") return ["booked","active","driver_assigned","to_pickup","loading","loaded","in_progress","breakdown","resume_movement"].includes(st);
+ if(cargoFilter==="done") return ["done","delivered","closed"].includes(st);
+ if(cargoFilter==="cancelled") return st==="cancelled";
+ return true;
+}
+
+function setCargoFilter(f){
+ cargoFilter=f;
+ renderCargoList();
+}
+
+function renderCargoList(){
+ const box=document.getElementById("cargoList");
+
+ const filters=`
+   <div class="filterBar">
+     <button class="filterBtn ${cargoFilter==="all" ? "active" : ""}" onclick="setCargoFilter('all')">Все</button>
+     <button class="filterBtn ${cargoFilter==="open" ? "active" : ""}" onclick="setCargoFilter('open')">Открытые</button>
+     <button class="filterBtn ${cargoFilter==="work" ? "active" : ""}" onclick="setCargoFilter('work')">В работе</button>
+     <button class="filterBtn ${cargoFilter==="done" ? "active" : ""}" onclick="setCargoFilter('done')">Завершённые</button>
+     <button class="filterBtn ${cargoFilter==="cancelled" ? "active" : ""}" onclick="setCargoFilter('cancelled')">Отменённые</button>
+   </div>
+ `;
+
+ const list=appCargo.filter(isCargoVisible);
+
+ if(!list.length){
+   box.innerHTML=filters+'<div class="cargoItem">По этому фильтру грузов нет</div>';
+   return;
+ }
+
+ box.innerHTML=filters+list.map(c=>`
+   <div class="cargoItem">
+     <div class="cargoTitle">#${esc(c.id)} ${esc(c.from_city)} → ${esc(c.to_city)}</div>
+     <div class="cargoMeta">
+       ${esc(c.description || "Без описания")}<br>
+       💰 ${esc(c.price_amount)} ${esc(c.price_currency || "RUB")}
+       ${c.distance_km ? " · 🛣 "+esc(c.distance_km)+" км" : ""}
+       ${c.rate_per_km ? " · "+esc(c.rate_per_km)+" ₽/км" : ""}
+     </div>
+     <span class="badge">${esc(humanStatus(c.status))}</span>
+   </div>
+ `).join("");
+}
+
 async function loadMyCargo(){
  const box=document.getElementById("cargoList");
  const token=localStorage.getItem("dalnoboy_token");
@@ -128,23 +184,15 @@ async function loadMyCargo(){
    return;
  }
 
- if(!d.cargo || !d.cargo.length){
+ appCargo=d.cargo || [];
+ cargoFilter="all";
+
+ if(!appCargo.length){
    box.innerHTML='<div class="cargoItem">Грузов пока нет</div>';
    return;
  }
 
- box.innerHTML=d.cargo.map(c=>`
-   <div class="cargoItem">
-     <div class="cargoTitle">#${esc(c.id)} ${esc(c.from_city)} → ${esc(c.to_city)}</div>
-     <div class="cargoMeta">
-       ${esc(c.description || "Без описания")}<br>
-       💰 ${esc(c.price_amount)} ${esc(c.price_currency || "RUB")}
-       ${c.distance_km ? " · 🛣 "+esc(c.distance_km)+" км" : ""}
-       ${c.rate_per_km ? " · "+esc(c.rate_per_km)+" ₽/км" : ""}
-     </div>
-     <span class="badge">${esc(humanStatus(c.status))}</span>
-   </div>
- `).join("");
+ renderCargoList();
 }
 
 function show(data){
