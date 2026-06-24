@@ -18,6 +18,13 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 .actionBtn{display:block;text-align:center;text-decoration:none;background:#334155;color:#e5e7eb;padding:12px;border-radius:12px;margin-top:10px;font-weight:700}
 .actionBtn.green{background:#22c55e;color:#052e16}
 .actionBtn.blue{background:#38bdf8;color:#082f49}
+
+.cargoBox{display:none;margin-top:14px}
+.cargoItem{background:#0f172a;border:1px solid #334155;border-radius:14px;padding:12px;margin-top:10px}
+.cargoTitle{font-weight:800;margin-bottom:6px}
+.cargoMeta{color:#94a3b8;font-size:13px;line-height:1.45}
+.badge{display:inline-block;padding:3px 8px;border-radius:999px;background:#334155;color:#e5e7eb;font-size:12px;margin-top:6px}
+.actionBtn{width:100%;border:0;font-size:15px;cursor:pointer}
 </style>
 </head>
 <body>
@@ -39,6 +46,7 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 </div>
 
 <div id="actions" class="actions"></div>
+<div id="cargoList" class="cargoBox"></div>
 
 <div id="status" class="status">Готово к входу.</div>
 </div>
@@ -52,6 +60,7 @@ function renderActions(role){
  let html="";
  if(role==="shipper"){
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта грузов</a>';
+   html += '<button class="actionBtn blue" onclick="loadMyCargo()">📦 Мои грузы</button>';
    html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">➕ Создать груз в боте</a>';
    html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">🤝 Сделки в боте</a>';
  } else if(role==="carrier"){
@@ -71,6 +80,71 @@ function renderActions(role){
  }
  box.innerHTML=html;
  box.style.display="block";
+}
+
+
+function esc(v){
+ return String(v ?? "").replace(/[&<>"']/g, c => ({
+   "&":"&amp;",
+   "<":"&lt;",
+   ">":"&gt;",
+   '"':"&quot;",
+   "'":"&#039;"
+ }[c]));
+}
+
+function humanStatus(v){
+ const m={
+   open:"открыт",
+   booked:"забронирован",
+   in_progress:"в работе",
+   done:"завершён",
+   cancelled:"отменён"
+ };
+ return m[v] || v || "—";
+}
+
+async function loadMyCargo(){
+ const box=document.getElementById("cargoList");
+ const token=localStorage.getItem("dalnoboy_token");
+
+ if(!token){
+   status("❌ Нужно войти заново");
+   return;
+ }
+
+ box.style.display="block";
+ box.innerHTML='<div class="cargoItem">Загружаю грузы...</div>';
+
+ const r=await fetch("/api/app/my-cargo",{
+   headers:{Authorization:"Bearer "+token}
+ });
+
+ const d=await r.json();
+
+ if(!d.success){
+   box.innerHTML='<div class="cargoItem">❌ Не удалось загрузить грузы</div>';
+   status("❌ Ошибка загрузки грузов");
+   return;
+ }
+
+ if(!d.cargo || !d.cargo.length){
+   box.innerHTML='<div class="cargoItem">Грузов пока нет</div>';
+   return;
+ }
+
+ box.innerHTML=d.cargo.map(c=>`
+   <div class="cargoItem">
+     <div class="cargoTitle">#${esc(c.id)} ${esc(c.from_city)} → ${esc(c.to_city)}</div>
+     <div class="cargoMeta">
+       ${esc(c.description || "Без описания")}<br>
+       💰 ${esc(c.price_amount)} ${esc(c.price_currency || "RUB")}
+       ${c.distance_km ? " · 🛣 "+esc(c.distance_km)+" км" : ""}
+       ${c.rate_per_km ? " · "+esc(c.rate_per_km)+" ₽/км" : ""}
+     </div>
+     <span class="badge">${esc(humanStatus(c.status))}</span>
+   </div>
+ `).join("");
 }
 
 function show(data){
