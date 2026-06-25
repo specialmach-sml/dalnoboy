@@ -2678,9 +2678,55 @@ async def profile_phone_message(update: Update, context: ContextTypes.DEFAULT_TY
 
     await profile(update, context)
 
+
+async def open_dealchat_deeplink(update: Update, context: ContextTypes.DEFAULT_TYPE, user_id: int, payload: str):
+    try:
+        deal_id = int(payload.replace("dealchat_", ""))
+    except ValueError:
+        await update.message.reply_text("❌ Сделка не найдена")
+        return True
+
+    deal = await DB.fetchrow("""
+        SELECT
+            d.id,
+            c.created_by,
+            COALESCE(r.driver_id, t.driver_id) AS driver_id
+        FROM deals d
+        JOIN cargo c ON c.id = d.cargo_id
+        JOIN trucks t ON t.id = d.truck_id
+        LEFT JOIN responses r ON r.id = d.response_id
+        WHERE d.id=$1
+    """, deal_id)
+
+    if not deal:
+        await update.message.reply_text("❌ Чат сделки не найден")
+        return True
+
+    if user_id not in [deal["created_by"], deal["driver_id"]]:
+        await update.message.reply_text("⛔ Нет доступа к этой сделке")
+        return True
+
+    context.user_data["chat_deal_id"] = deal_id
+    context.user_data["last_deal_id"] = deal_id
+
+    await update.message.reply_text(
+        f"💬 Чат сделки #{deal_id}\n\n"
+        f"Напишите сообщение обычным текстом.\n"
+        f"История: /dealchat {deal_id}\n"
+        f"Ответ командой: /replydeal текст\n"
+        f"Отмена: /cancel"
+    )
+    return True
+
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     logging.info(f"start called args={context.args}, user={update.effective_user.id if update.effective_user else None}")
     user_id = await ensure_user(update.effective_user)
+
+    if context.args and context.args[0].startswith("dealchat_"):
+        handled = await open_dealchat_deeplink(update, context, user_id, context.args[0])
+        if handled:
+            return
 
     if context.args and context.args[0].startswith("cargo_"):
         try:
