@@ -249,6 +249,24 @@ function dealStatusName(st){
 }
 
 
+function dealSafeName(st){
+ if(st==="draft") return "Черновик";
+ if(st==="pending") return "Ожидает";
+ if(st==="confirmed") return "Подтверждена";
+ if(st==="closed") return "Закрыта";
+ if(st==="cancelled") return "Отменена";
+ return st || "—";
+}
+
+function dealPaymentName(st){
+ if(st==="pending") return "Ожидает оплаты";
+ if(st==="paid") return "Оплачено";
+ if(st==="partial") return "Частично оплачено";
+ if(st==="refunded") return "Возврат";
+ if(st==="cancelled") return "Отменено";
+ return st || "—";
+}
+
 async function loadMyDeals(){
  const box=document.getElementById("dealsList");
  if(!box){status("❌ Блок сделок не найден");return;}
@@ -302,8 +320,8 @@ async function loadMyDeals(){
          <b>Груз:</b> #${esc(x.cargo_id || "—")}<br>
          <b>Машина:</b> #${esc(x.truck_id || "—")}<br>
          <b>Статус:</b> ${esc(dealStatusName(x.status))}<br>
-         <b>Безопасная сделка:</b> ${esc(x.safe_deal_status || "—")}<br>
-         <b>Оплата:</b> ${esc(x.payment_status || "—")}<br>
+         <b>Безопасная сделка:</b> ${esc(dealSafeName(x.safe_deal_status))}<br>
+         <b>Оплата:</b> ${esc(dealPaymentName(x.payment_status))}<br>
        </div>
      </details>
    </div>
