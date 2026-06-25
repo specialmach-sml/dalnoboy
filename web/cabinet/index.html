@@ -30,6 +30,7 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 .cargoDetails{margin-top:8px;background:#020617;border:1px solid #38bdf8;border-radius:12px;padding:10px}
 .cargoDetails summary{cursor:pointer;font-weight:800;color:#38bdf8}
 .cargoDetailsBody{margin-top:10px;color:#cbd5e1;font-size:13px;line-height:1.5}
+.cargoDetails a.moreBtn{display:block;text-align:center;text-decoration:none;margin-top:8px}
 .actionBtn{width:100%;border:0;font-size:15px;cursor:pointer}
 .filterBar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .filterBtn{padding:9px;border-radius:10px;background:#334155;color:#e5e7eb;border:0;font-size:13px;cursor:pointer}
@@ -323,6 +324,7 @@ async function loadMyDeals(){
          <b>Безопасная сделка:</b> ${esc(dealSafeName(x.safe_deal_status))}<br>
          <b>Оплата:</b> ${esc(dealPaymentName(x.payment_status))}<br><br>
          <button class="moreBtn" onclick="loadDealTimeline('${esc(x.id)}')">📍 Таймлайн</button>
+         <a class="moreBtn" href="https://t.me/dalnoboybros_bot?start=dealchat_${esc(x.id)}" target="_blank" rel="noopener">💬 Чат в боте</a>
          <div id="timeline_${esc(x.id)}" class="cargoDetailsBody" style="display:none;margin-top:8px"></div>
        </div>
      </details>
