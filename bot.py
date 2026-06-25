@@ -7266,6 +7266,7 @@ async def deal_chat_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     deal = await DB.fetchrow("""
         SELECT
             d.id,
+            d.cargo_id,
             c.created_by,
             COALESCE(r.driver_id, t.driver_id) AS driver_id
         FROM deals d
