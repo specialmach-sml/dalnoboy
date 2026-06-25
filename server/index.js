@@ -493,6 +493,78 @@ app.get("/api/app/my-deals", async (req, res) => {
 
 
 
+app.get("/api/app/deal-timeline", async (req, res) => {
+  try {
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, error: "token required" });
+    }
+
+    const dealId = parseInt(req.query.deal_id, 10);
+    if (!dealId) {
+      return res.status(400).json({ success: false, error: "deal_id required" });
+    }
+
+    const token = auth.slice(7).trim();
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    const sessionResult = await pool.query(`
+      SELECT s.user_id, u.banned
+      FROM app_sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = $1
+        AND s.revoked_at IS NULL
+        AND s.expires_at > now()
+      LIMIT 1
+    `, [tokenHash]);
+
+    if (!sessionResult.rows.length) {
+      return res.status(401).json({ success: false, error: "invalid session" });
+    }
+
+    const user = sessionResult.rows[0];
+    if (user.banned) {
+      return res.status(403).json({ success: false, error: "user banned" });
+    }
+
+    const accessResult = await pool.query(`
+      SELECT d.id
+      FROM deals d
+      LEFT JOIN cargo c ON c.id = d.cargo_id
+      LEFT JOIN trucks t ON t.id = d.truck_id
+      WHERE d.id = $1
+        AND (c.created_by = $2 OR t.driver_id = $2)
+      LIMIT 1
+    `, [dealId, user.user_id]);
+
+    if (!accessResult.rows.length) {
+      return res.status(404).json({ success: false, error: "deal not found" });
+    }
+
+    const timelineResult = await pool.query(`
+      SELECT
+        h.status,
+        h.created_at,
+        u.full_name AS created_by_name
+      FROM deal_status_history h
+      LEFT JOIN users u ON u.id = h.created_by
+      WHERE h.deal_id = $1
+      ORDER BY h.id ASC
+    `, [dealId]);
+
+    return res.json({
+      success: true,
+      deal_id: dealId,
+      timeline: timelineResult.rows
+    });
+  } catch (err) {
+    console.error("app deal-timeline error", err);
+    return res.status(500).json({ success: false, error: "server error" });
+  }
+});
+
+
+
 app.post("/api/location", async (req, res) => {
   try {
     const { telegram_id, lat, lon } = req.body;
