@@ -413,6 +413,86 @@ app.get("/api/app/my-cargo", async (req, res) => {
 });
 
 
+app.get("/api/app/my-deals", async (req, res) => {
+  try {
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, error: "token required" });
+    }
+
+    const token = auth.slice(7).trim();
+    if (!token) {
+      return res.status(401).json({ success: false, error: "token required" });
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    const sessionResult = await pool.query(`
+      SELECT s.user_id, u.banned
+      FROM app_sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = $1
+        AND s.revoked_at IS NULL
+        AND s.expires_at > now()
+      LIMIT 1
+    `, [tokenHash]);
+
+    if (!sessionResult.rows.length) {
+      return res.status(401).json({ success: false, error: "invalid session" });
+    }
+
+    const user = sessionResult.rows[0];
+
+    if (user.banned) {
+      return res.status(403).json({ success: false, error: "user banned" });
+    }
+
+    const dealsResult = await pool.query(`
+      SELECT
+        d.id,
+        d.cargo_id,
+        d.truck_id,
+        CASE
+          WHEN c.created_by = $1 THEN 'shipper'
+          WHEN t.driver_id = $1 THEN 'carrier'
+          ELSE 'viewer'
+        END AS side,
+        c.from_city,
+        c.to_city,
+        d.status,
+        d.safe_deal_status,
+        d.payment_status,
+        CASE WHEN d.client_price IS NULL THEN NULL ELSE ROUND(d.client_price::numeric, 0)::text END AS client_price,
+        CASE WHEN d.carrier_price IS NULL THEN NULL ELSE ROUND(d.carrier_price::numeric, 0)::text END AS carrier_price,
+        CASE WHEN d.dispatcher_profit IS NULL THEN NULL ELSE ROUND(d.dispatcher_profit::numeric, 0)::text END AS dispatcher_profit,
+        CASE WHEN c.price_amount IS NULL THEN NULL ELSE ROUND(c.price_amount::numeric, 0)::text END AS cargo_price,
+        c.price_currency,
+        shipper.full_name AS shipper_name,
+        carrier.full_name AS carrier_name,
+        d.created_at,
+        d.updated_at
+      FROM deals d
+      LEFT JOIN cargo c ON c.id = d.cargo_id
+      LEFT JOIN trucks t ON t.id = d.truck_id
+      LEFT JOIN users shipper ON shipper.id = c.created_by
+      LEFT JOIN users carrier ON carrier.id = t.driver_id
+      WHERE c.created_by = $1 OR t.driver_id = $1
+      ORDER BY d.id DESC
+      LIMIT 100
+    `, [user.user_id]);
+
+    return res.json({
+      success: true,
+      deals: dealsResult.rows
+    });
+  } catch (err) {
+    console.error("app my-deals error", err);
+    return res.status(500).json({ success: false, error: "server error" });
+  }
+});
+
+
+
 app.post("/api/location", async (req, res) => {
   try {
     const { telegram_id, lat, lon } = req.body;
