@@ -57,6 +57,7 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 <div id="actions" class="actions"></div>
 <div id="cargoDetail" class="detailBox"></div>
 <div id="cargoList" class="cargoBox"></div>
+<div id="dealsList" class="cargoList"></div>
 <div id="cargoHint" class="hint">Нажмите на груз, чтобы открыть подробности</div>
 
 <div id="status" class="status">Готово к входу.</div>
@@ -80,7 +81,7 @@ function renderActions(role){
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта грузов</a>';
    html += '<button class="actionBtn blue" onclick="loadMyCargo()">📦 Мои грузы</button>';
    html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">➕ Создать груз в боте</a>';
-   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">🤝 Сделки в боте</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">💬 Открыть бота</a>';
  } else if(role==="carrier"){
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта грузов</a>';
    html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">🚚 Моя машина</a>';
@@ -96,6 +97,7 @@ function renderActions(role){
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
    html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">Открыть бота</a>';
  }
+ html += '<button class="actionBtn blue" onclick="loadMyDeals()">🤝 Сделки</button>';
  box.innerHTML=html;
  box.style.display="block";
 }
@@ -220,6 +222,70 @@ async function loadMyCargo(){
 
  renderCargoList();
 }
+
+
+
+async function loadMyDeals(){
+ const box=document.getElementById("dealsList");
+ if(!box){status("❌ Блок сделок не найден");return;}
+ const cargoBox=document.getElementById("cargoList");
+ const cargoDetail=document.getElementById("cargoDetail");
+ const token=localStorage.getItem("dalnoboy_token");
+
+ if(!token){
+   status("❌ Нужно войти заново");
+   return;
+ }
+
+ if(cargoBox){cargoBox.style.display="none";}
+ if(cargoDetail){cargoDetail.style.display="none";cargoDetail.innerHTML="";}
+
+ box.style.display="block";
+ box.innerHTML='<div class="cargoItem">Загружаю сделки...</div>';
+
+ const r=await fetch("/api/app/my-deals",{
+   headers:{Authorization:"Bearer "+token}
+ });
+
+ const d=await r.json();
+
+ if(!d.success){
+   box.innerHTML='<div class="cargoItem">❌ Не удалось загрузить сделки</div>';
+   status("❌ Ошибка загрузки сделок");
+   return;
+ }
+
+ const deals=d.deals || [];
+
+ if(!deals.length){
+   box.innerHTML='<div class="cargoItem">Сделок пока нет</div>';
+   return;
+ }
+
+ box.innerHTML=deals.map(x=>`
+   <div class="cargoItem">
+     <div class="cargoTitle">🤝 Сделка #${esc(x.id)}<br>${esc(x.from_city || "—")} → ${esc(x.to_city || "—")}</div>
+     <div class="cargoMeta">
+       Роль: ${esc(x.side || "—")}<br>
+       Заказчик: ${esc(x.shipper_name || "—")}<br>
+       Перевозчик: ${esc(x.carrier_name || "—")}<br>
+       💰 ${esc(x.client_price || x.carrier_price || x.cargo_price || "—")} ${esc(x.price_currency || "RUB")}
+     </div>
+     <span class="badge">${esc(x.status || "—")}</span>
+     <details class="cargoDetails">
+       <summary>Подробнее</summary>
+       <div class="cargoDetailsBody">
+         <b>Груз:</b> #${esc(x.cargo_id || "—")}<br>
+         <b>Машина:</b> #${esc(x.truck_id || "—")}<br>
+         <b>Статус:</b> ${esc(x.status || "—")}<br>
+         <b>Безопасная сделка:</b> ${esc(x.safe_deal_status || "—")}<br>
+         <b>Оплата:</b> ${esc(x.payment_status || "—")}<br>
+       </div>
+     </details>
+   </div>
+ `).join("");
+}
+
 
 
 function showCargoDetail(id){
