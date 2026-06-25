@@ -321,11 +321,59 @@ async function loadMyDeals(){
          <b>Машина:</b> #${esc(x.truck_id || "—")}<br>
          <b>Статус:</b> ${esc(dealStatusName(x.status))}<br>
          <b>Безопасная сделка:</b> ${esc(dealSafeName(x.safe_deal_status))}<br>
-         <b>Оплата:</b> ${esc(dealPaymentName(x.payment_status))}<br>
+         <b>Оплата:</b> ${esc(dealPaymentName(x.payment_status))}<br><br>
+         <button class="moreBtn" onclick="loadDealTimeline('${esc(x.id)}')">📍 Таймлайн</button>
+         <div id="timeline_${esc(x.id)}" class="cargoDetailsBody" style="display:none;margin-top:8px"></div>
        </div>
      </details>
    </div>
  `).join("");
+}
+
+
+
+
+async function loadDealTimeline(id){
+ const token=localStorage.getItem("dalnoboy_token");
+ const box=document.getElementById("timeline_"+id);
+
+ if(!token){
+   status("❌ Нужно войти заново");
+   return;
+ }
+
+ if(!box){
+   status("❌ Блок таймлайна не найден");
+   return;
+ }
+
+ box.style.display="block";
+ box.innerHTML="Загружаю таймлайн...";
+
+ const r=await fetch("/api/app/deal-timeline?deal_id="+encodeURIComponent(id),{
+   headers:{Authorization:"Bearer "+token}
+ });
+
+ const d=await r.json();
+
+ if(!d.success){
+   box.innerHTML="❌ Не удалось загрузить таймлайн";
+   status("❌ Ошибка таймлайна");
+   return;
+ }
+
+ const list=d.timeline || [];
+
+ if(!list.length){
+   box.innerHTML="Истории статусов пока нет";
+   return;
+ }
+
+ box.innerHTML=list.map(x=>{
+   const dt=(x.created_at || "").replace("T"," ").slice(0,16);
+   return "📍 <b>"+esc(dealStatusName(x.status))+"</b><br>"+
+          "<span class='cargoMeta'>"+esc(x.created_by_name || "—")+" · "+esc(dt)+"</span><br><br>";
+ }).join("");
 }
 
 
