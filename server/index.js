@@ -493,6 +493,114 @@ app.get("/api/app/my-deals", async (req, res) => {
 
 
 
+
+
+app.post("/api/app/deal-close", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ")) {
+      return res.status(401).json({ success: false, error: "token required" });
+    }
+
+    const dealId = parseInt((req.body || {}).deal_id, 10);
+    if (!dealId) {
+      return res.status(400).json({ success: false, error: "deal_id required" });
+    }
+
+    const token = auth.slice(7).trim();
+    const tokenHash = crypto.createHash("sha256").update(token).digest("hex");
+
+    await client.query("BEGIN");
+
+    const sess = await client.query(`
+      SELECT s.user_id
+      FROM app_sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = $1
+        AND s.revoked_at IS NULL
+        AND s.expires_at > now()
+        AND COALESCE(u.banned,false) = false
+      LIMIT 1
+    `, [tokenHash]);
+
+    if (!sess.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({ success: false, error: "session invalid" });
+    }
+
+    const userId = sess.rows[0].user_id;
+
+    const deal = await client.query(`
+      SELECT d.id, d.cargo_id, d.status, c.created_by AS owner_id
+      FROM deals d
+      JOIN cargo c ON c.id = d.cargo_id
+      WHERE d.id = $1
+      FOR UPDATE OF d
+    `, [dealId]);
+
+    if (!deal.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({ success: false, error: "deal not found" });
+    }
+
+    const row = deal.rows[0];
+
+    if (String(row.owner_id) !== String(userId)) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({ success: false, error: "access denied" });
+    }
+
+    if (row.status === "closed") {
+      await client.query("COMMIT");
+      return res.json({ success: true, status: "closed", already_closed: true });
+    }
+
+    if (!["delivered", "done"].includes(row.status)) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({ success: false, error: "not ready to close" });
+    }
+
+    await client.query(`
+      UPDATE deals
+      SET status = 'closed', updated_at = now()
+      WHERE id = $1
+    `, [dealId]);
+
+    await client.query(`
+      UPDATE cargo
+      SET status = 'done'
+      WHERE id = $1
+    `, [row.cargo_id]);
+
+    await client.query(`
+      INSERT INTO deal_status_history (deal_id, status, created_by)
+      VALUES ($1, 'closed', $2)
+    `, [dealId, userId]);
+
+    await client.query(`
+      INSERT INTO audit_log (user_id, deal_id, cargo_id, action, payload)
+      VALUES ($1, $2, $3, 'deal_status_changed', $4::jsonb)
+    `, [
+      userId,
+      dealId,
+      row.cargo_id,
+      JSON.stringify({ status: "closed", source: "web_cabinet" })
+    ]);
+
+    await client.query("COMMIT");
+
+    return res.json({ success: true, deal_id: dealId, status: "closed" });
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch (_) {}
+    console.error("app deal-close error", err);
+    return res.status(500).json({ success: false, error: "server error" });
+  } finally {
+    client.release();
+  }
+});
+
 app.get("/api/app/deal-timeline", async (req, res) => {
   try {
     const auth = req.headers.authorization || "";
