@@ -11,26 +11,26 @@ input,button{width:100%;padding:14px;border-radius:12px;margin-top:12px;font-siz
 input{background:#020617;color:white;border:1px solid #475569;letter-spacing:2px}
 button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 .status,.profile{margin-top:14px;background:#020617;border:1px solid #334155;border-radius:12px;padding:12px;white-space:pre-wrap}
-.profile{display:нетne}
+.profile{display:none}
 .row{display:flex;justify-content:space-between;border-bottom:1px solid #1e293b;padding:7px 0}
 
-.actions{display:нетne;margin-top:14px}
-.actionBtn{display:block;text-align:center;text-decoration:нетne;background:#334155;color:#e5e7eb;padding:12px;border-radius:12px;margin-top:10px;font-weight:700}
+.actions{display:none;margin-top:14px}
+.actionBtn{display:block;text-align:center;text-decoration:none;background:#334155;color:#e5e7eb;padding:12px;border-radius:12px;margin-top:10px;font-weight:700}
 .actionBtn.green{background:#22c55e;color:#052e16}
 .actionBtn.blue{background:#38bdf8;color:#082f49}
 
-.cargoBox{display:нетne;margin-top:14px}
+.cargoBox{display:none;margin-top:14px}
 .cargoItem{background:#0f172a;border:1px solid #334155;border-radius:14px;padding:12px;margin-top:10px}
 .cargoTitle{font-weight:800;margin-bottom:6px}
 .cargoMeta{color:#94a3b8;font-size:13px;line-height:1.45}
 .hint{color:#94a3b8;font-size:13px;margin-top:8px;text-align:center}
-.detailBox{display:нетne;margin-top:14px;background:#020617;border:1px solid #38bdf8;border-radius:14px;padding:12px}
+.detailBox{display:none;margin-top:14px;background:#020617;border:1px solid #38bdf8;border-radius:14px;padding:12px}
 .badge{display:inline-block;padding:3px 8px;border-radius:999px;background:#334155;color:#e5e7eb;font-size:12px;margin-top:6px}
 .moreBtn{margin-top:8px;padding:8px;border-radius:10px;background:#38bdf8;color:#082f49;border:0;font-weight:800;cursor:pointer;font-size:13px}
 .cargoDetails{margin-top:8px;background:#020617;border:1px solid #38bdf8;border-radius:12px;padding:10px}
 .cargoDetails summary{cursor:pointer;font-weight:800;color:#38bdf8}
 .cargoDetailsBody{margin-top:10px;color:#cbd5e1;font-size:13px;line-height:1.5}
-.cargoDetails a.moreBtn{display:block;text-align:center;text-decoration:нетne;margin-top:8px}
+.cargoDetails a.moreBtn{display:block;text-align:center;text-decoration:none;margin-top:8px}
 .actionBtn{width:100%;border:0;font-size:15px;cursor:pointer}
 .filterBar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .filterBtn{padding:9px;border-radius:10px;background:#334155;color:#e5e7eb;border:0;font-size:13px;cursor:pointer}
@@ -81,23 +81,24 @@ function renderActions(role){
  if(role==="shipper"){
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта грузов</a>';
    html += '<button class="actionBtn blue" onclick="loadMyCargo()">📦 Мои грузы</button>';
-   html += '<a class="actionBtn" href="https://t.me/dalнетboybros_bot">➕ Создать груз в боте</a>';
-   html += '<a class="actionBtn" href="https://t.me/dalнетboybros_bot">💬 Открыть бота</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">➕ Создать груз в боте</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">💬 Открыть бота</a>';
  } else if(role==="carrier"){
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта грузов</a>';
-   html += '<a class="actionBtn" href="https://t.me/dalнетboybros_bot">🚚 Моя машина</a>';
-   html += '<a class="actionBtn" href="https://t.me/dalнетboybros_bot">📦 Найти грузы</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">🚚 Моя машина</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">📦 Найти грузы</a>';
  } else if(role==="dispatcher"){
    html += '<a class="actionBtn blue" href="/dispatcher/">👥 Кабинет диспетчера</a>';
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
  } else if(role==="admin"){
    html += '<a class="actionBtn blue" href="/dispatcher/">👥 Диспетчерская</a>';
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
-   html += '<a class="actionBtn" href="https://t.me/dalнетboybros_bot">🛡 Админ в боте</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">🛡 Админ в боте</a>';
  } else {
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
-   html += '<a class="actionBtn" href="https://t.me/dalнетboybros_bot">Открыть бота</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">Открыть бота</a>';
  }
+ html += '<button class="actionBtn blue" onclick="loadAppResponses()">📨 Отклики</button>';
  html += '<button class="actionBtn blue" onclick="loadMyDeals()">🤝 Сделки</button>';
  box.innerHTML=html;
  box.style.display="block";
@@ -191,7 +192,7 @@ function renderCargoList(){
 
 async function loadMyCargo(){
  const box=document.getElementById("cargoList");
- const token=localStorage.getItem("dalнетboy_token");
+ const token=localStorage.getItem("dalnoboy_token");
 
  if(!token){
    status("❌ Нужно войти заново");
@@ -268,20 +269,148 @@ function dealPaymentName(st){
  return st || "—";
 }
 
-async function loadMyDeals(){
- const box=document.getElementById("dealsList");
- if(!box){status("❌ Блок сделок не найден");return;}
- const cargoBox=document.getElementById("cargoList");
- const cargoDetail=document.getElementById("cargoDetail");
- const token=localStorage.getItem("dalнетboy_token");
+
+
+function responseStatusName(st){
+ if(st==="pending") return "Ожидает решения";
+ if(st==="accepted") return "Принят";
+ if(st==="rejected") return "Отклонён";
+ if(st==="offered") return "Предложен";
+ return st || "—";
+}
+
+
+async function responseActionWeb(id, action){
+ const token=localStorage.getItem("dalnoboy_token");
 
  if(!token){
    status("❌ Нужно войти заново");
    return;
  }
 
- if(cargoBox){cargoBox.style.display="нетne";}
- if(cargoDetail){cargoDetail.style.display="нетne";cargoDetail.innerHTML="";}
+ const word = action==="accept" ? "принять" : "отклонить";
+ if(!confirm("Точно "+word+" отклик #"+id+"?")) return;
+
+ const r=await fetch("/api/app/response-action",{
+   method:"POST",
+   headers:{
+     "Content-Type":"application/json",
+     Authorization:"Bearer "+token
+   },
+   body:JSON.stringify({response_id:id,action:action})
+ });
+
+ const d=await r.json();
+
+ if(!d.success){
+   status("❌ Ошибка: "+(d.error||"server error"));
+   return;
+ }
+
+ if(action==="accept"){
+   status("✅ Отклик принят, сделка создана");
+ } else {
+   status("❌ Отклик отклонён");
+ }
+
+ await loadAppResponses();
+}
+
+async function loadAppResponses(){
+ const box=document.getElementById("dealsList");
+ if(!box){status("❌ Блок откликов не найден");return;}
+
+ const cargoBox=document.getElementById("cargoList");
+ const cargoDetail=document.getElementById("cargoDetail");
+ const token=localStorage.getItem("dalnoboy_token");
+
+ if(!token){
+   status("❌ Нужно войти заново");
+   return;
+ }
+
+ if(cargoBox){cargoBox.style.display="none";}
+ if(cargoDetail){cargoDetail.style.display="none";cargoDetail.innerHTML="";}
+
+ box.style.display="block";
+ box.innerHTML='<div class="cargoItem">Загружаю отклики...</div>';
+
+ const r=await fetch("/api/app/responses",{
+   headers:{Authorization:"Bearer "+token}
+ });
+
+ const d=await r.json();
+
+ if(!d.success){
+   box.innerHTML='<div class="cargoItem">❌ Не удалось загрузить отклики</div>';
+   status("❌ Ошибка загрузки откликов");
+   return;
+ }
+
+ const owner=d.owner || [];
+ const driver=d.driver || [];
+
+ let html='<div class="cargoItem"><b>📨 Отклики</b></div>';
+
+ html += '<div class="cargoItem"><b>Отклики на мои грузы</b></div>';
+
+ if(owner.length){
+   html += owner.map(x=>{
+     const canAct = ["pending","offered"].includes(String(x.status || "")) && !x.deal_id;
+     return `
+       <div class="cargoItem">
+         <b>Отклик #${esc(x.id)}</b><br>
+         <b>Груз:</b> #${esc(x.cargo_id)} ${esc(x.from_city)} → ${esc(x.to_city)}<br>
+         <b>Водитель:</b> ${esc(x.driver_name || "—")} ${x.driver_verified ? "✅" : "⚠️"}<br>
+         <b>Машина:</b> #${esc(x.truck_id || "—")} ${esc(x.current_city || "")} ${esc(x.body_type || "")}<br>
+         <b>Цена:</b> ${esc(x.price_amount || "—")} ${esc(x.price_currency || "RUB")}<br>
+         <b>Ставка:</b> ${esc(x.rate_per_km || "—")} ₽/км<br>
+         <b>Статус:</b> ${esc(responseStatusName(x.status))}<br>
+         ${x.deal_id ? `<b>Сделка:</b> #${esc(x.deal_id)}<br><button class="moreBtn" onclick="loadMyDeals()">🤝 Открыть сделки</button>` : ""}
+         ${canAct ? `<br><button class="moreBtn" onclick="responseActionWeb('${esc(x.id)}','accept')">✅ Принять</button>
+         <button class="moreBtn" onclick="responseActionWeb('${esc(x.id)}','reject')">❌ Отклонить</button>` : ""}
+       </div>`;
+   }).join("");
+ } else {
+   html += '<div class="cargoItem">Пока нет откликов на ваши грузы</div>';
+ }
+
+ html += '<div class="cargoItem"><b>Мои отклики как перевозчика</b></div>';
+
+ if(driver.length){
+   html += driver.map(x=>`
+     <div class="cargoItem">
+       <b>Мой отклик #${esc(x.id)}</b><br>
+       <b>Груз:</b> #${esc(x.cargo_id)} ${esc(x.from_city)} → ${esc(x.to_city)}<br>
+       <b>Заказчик:</b> ${esc(x.owner_name || "—")}<br>
+       <b>Цена:</b> ${esc(x.price_amount || "—")} ${esc(x.price_currency || "RUB")}<br>
+       <b>Ставка:</b> ${esc(x.rate_per_km || "—")} ₽/км<br>
+       <b>Статус:</b> ${esc(responseStatusName(x.status))}<br>
+       ${x.deal_id ? `<b>Сделка:</b> #${esc(x.deal_id)}<br><button class="moreBtn" onclick="loadMyDeals()">🤝 Открыть сделки</button>` : ""}
+     </div>
+   `).join("");
+ } else {
+   html += '<div class="cargoItem">Вы пока не откликались на грузы</div>';
+ }
+
+ box.innerHTML=html;
+}
+
+
+async function loadMyDeals(){
+ const box=document.getElementById("dealsList");
+ if(!box){status("❌ Блок сделок не найден");return;}
+ const cargoBox=document.getElementById("cargoList");
+ const cargoDetail=document.getElementById("cargoDetail");
+ const token=localStorage.getItem("dalnoboy_token");
+
+ if(!token){
+   status("❌ Нужно войти заново");
+   return;
+ }
+
+ if(cargoBox){cargoBox.style.display="none";}
+ if(cargoDetail){cargoDetail.style.display="none";cargoDetail.innerHTML="";}
 
  box.style.display="block";
  box.innerHTML='<div class="cargoItem">Загружаю сделки...</div>';
@@ -327,8 +456,8 @@ async function loadMyDeals(){
          ${x.side==="shipper" && !x.my_review_id && ["delivered","done","closed"].includes(x.status) ? `<button class="moreBtn" onclick="reviewDealWeb('${esc(x.id)}')">&#11088; Оценить перевозчика</button>` : ""}
          ${x.carrier_user_id ? `<button class="moreBtn" onclick="showCarrierProfileWeb(\'${esc(x.carrier_user_id)}\')">Профиль перевозчика</button>` : ""}
          <button class="moreBtn" onclick="loadDealTimeline('${esc(x.id)}')">📍 Таймлайн</button>
-         <a class="moreBtn" href="https://t.me/dalнетboybros_bot?start=dealchat_${esc(x.id)}" target="_blank" rel="нетopener">💬 Чат в боте</a>
-         <div id="timeline_${esc(x.id)}" class="cargoDetailsBody" style="display:нетne;margin-top:8px"></div>
+         <a class="moreBtn" href="https://t.me/dalnoboybros_bot?start=dealchat_${esc(x.id)}" target="_blank" rel="noopener">💬 Чат в боте</a>
+         <div id="timeline_${esc(x.id)}" class="cargoDetailsBody" style="display:none;margin-top:8px"></div>
        </div>
      </details>
    </div>
@@ -339,7 +468,7 @@ async function loadMyDeals(){
 
 
 async function closeDealWeb(id){
- const token=localStorage.getItem("dalнетboy_token");
+ const token=localStorage.getItem("dalnoboy_token");
 
  if(!token){
    status("\u274c \u041d\u0443\u0436\u043d\u043e \u0432\u043e\u0439\u0442\u0438 \u0437\u0430\u043d\u043e\u0432\u043e");
@@ -373,7 +502,7 @@ async function closeDealWeb(id){
 
 
 async function reviewDealWeb(id){
- const token=localStorage.getItem("dalнетboy_token");
+ const token=localStorage.getItem("dalnoboy_token");
 
  if(!token){
    status("\u274c \u041d\u0443\u0436\u043d\u043e \u0432\u043e\u0439\u0442\u0438 \u0437\u0430\u043d\u043e\u0432\u043e");
@@ -420,7 +549,7 @@ async function reviewDealWeb(id){
 
 
 async function loadDealTimeline(id){
- const token=localStorage.getItem("dalнетboy_token");
+ const token=localStorage.getItem("dalnoboy_token");
  const box=document.getElementById("timeline_"+id);
 
  if(!token){
@@ -466,7 +595,7 @@ async function loadDealTimeline(id){
 
 
 async function showCarrierProfileWeb(userId){
- const token=localStorage.getItem("dalнетboy_token");
+ const token=localStorage.getItem("dalnoboy_token");
  const box=document.getElementById("cargoDetail");
 
  if(!token){
@@ -541,12 +670,12 @@ function showCargoDetail(id){
 
 function hideCargoDetail(){
  const box=document.getElementById("cargoDetail");
- box.style.display="нетne";
+ box.style.display="none";
  box.innerHTML="";
 }
 
 function show(data){
- document.getElementById("loginBox").style.display="нетne";
+ document.getElementById("loginBox").style.display="none";
  document.getElementById("profile").style.display="block";
  fullName.textContent=data.user.full_name||"—";
  role.textContent=data.user.role||"—";
@@ -561,18 +690,18 @@ async function login(){
  const r=await fetch("/api/app/login",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({code})});
  const d=await r.json();
  if(!d.success){status("❌ "+(d.error||"Ошибка входа"));return}
- localStorage.setItem("dalнетboy_token",d.token);
+ localStorage.setItem("dalnoboy_token",d.token);
  show(d);
 }
 async function check(){
- const token=localStorage.getItem("dalнетboy_token");
+ const token=localStorage.getItem("dalnoboy_token");
  if(!token)return;
  const r=await fetch("/api/app/me",{headers:{Authorization:"Bearer "+token}});
  const d=await r.json();
- if(!d.success){localStorage.removeItem("dalнетboy_token");return}
+ if(!d.success){localStorage.removeItem("dalnoboy_token");return}
  show(d);
 }
-function logout(){localStorage.removeItem("dalнетboy_token");location.reload()}
+function logout(){localStorage.removeItem("dalnoboy_token");location.reload()}
 check();
 </script>
 </body>

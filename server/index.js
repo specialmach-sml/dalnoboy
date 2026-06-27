@@ -413,6 +413,285 @@ app.get("/api/app/my-cargo", async (req, res) => {
 });
 
 
+
+async function getAppUserFromReq(req) {
+  const auth = req.headers.authorization || "";
+  if (!auth.startsWith("Bearer ")) return null;
+
+  const tokenHash = crypto.createHash("sha256").update(auth.slice(7).trim()).digest("hex");
+
+  const r = await pool.query(`
+    SELECT s.user_id
+    FROM app_sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.token_hash = $1
+      AND s.revoked_at IS NULL
+      AND s.expires_at > now()
+      AND COALESCE(u.banned,false) = false
+    LIMIT 1
+  `, [tokenHash]);
+
+  return r.rows[0] || null;
+}
+
+app.get("/api/app/responses", async (req, res) => {
+  try {
+    const user = await getAppUserFromReq(req);
+    if (!user) return res.status(401).json({success:false,error:"session invalid"});
+
+    const ownerRows = await pool.query(`
+      SELECT
+        r.id,
+        r.status,
+        r.message,
+        r.created_at,
+        c.id AS cargo_id,
+        c.from_city,
+        c.to_city,
+        c.price_amount,
+        c.price_currency,
+        c.weight_kg,
+        c.volume_m3,
+        c.places_count,
+        c.distance_km,
+        c.rate_per_km,
+        u.id AS driver_id,
+        u.full_name AS driver_name,
+        u.verified AS driver_verified,
+        t.id AS truck_id,
+        t.current_city,
+        t.body_type,
+        d.id AS deal_id
+      FROM responses r
+      JOIN cargo c ON c.id = r.cargo_id
+      JOIN users u ON u.id = r.driver_id
+      JOIN trucks t ON t.id = r.truck_id
+      LEFT JOIN deals d ON d.response_id = r.id
+      WHERE c.created_by = $1
+      ORDER BY r.id DESC
+      LIMIT 50
+    `, [user.user_id]);
+
+    const driverRows = await pool.query(`
+      SELECT
+        r.id,
+        r.status,
+        r.message,
+        r.created_at,
+        c.id AS cargo_id,
+        c.from_city,
+        c.to_city,
+        c.price_amount,
+        c.price_currency,
+        c.weight_kg,
+        c.volume_m3,
+        c.places_count,
+        c.distance_km,
+        c.rate_per_km,
+        c.created_by AS cargo_owner_id,
+        owner.full_name AS owner_name,
+        t.id AS truck_id,
+        t.current_city,
+        t.body_type,
+        d.id AS deal_id
+      FROM responses r
+      JOIN cargo c ON c.id = r.cargo_id
+      LEFT JOIN users owner ON owner.id = c.created_by
+      LEFT JOIN trucks t ON t.id = r.truck_id
+      LEFT JOIN deals d ON d.response_id = r.id
+      WHERE r.driver_id = $1
+      ORDER BY r.id DESC
+      LIMIT 50
+    `, [user.user_id]);
+
+    return res.json({
+      success: true,
+      owner: ownerRows.rows,
+      driver: driverRows.rows
+    });
+  } catch (err) {
+    console.error("app responses list error", err);
+    return res.status(500).json({success:false,error:"server error"});
+  }
+});
+
+
+app.post("/api/app/response-action", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const user = await getAppUserFromReq(req);
+    if (!user) return res.status(401).json({success:false,error:"session invalid"});
+
+    const b = req.body || {};
+    const responseId = parseInt(b.response_id, 10);
+    const action = String(b.action || "");
+
+    if (!responseId || !["accept","reject"].includes(action)) {
+      return res.status(400).json({success:false,error:"bad request"});
+    }
+
+    await client.query("BEGIN");
+
+    const responseRes = await client.query(`
+      SELECT
+        r.id,
+        r.status,
+        r.cargo_id,
+        r.truck_id,
+        r.driver_id,
+        c.created_by AS cargo_owner_id,
+        c.from_city,
+        c.to_city,
+        d.id AS deal_id
+      FROM responses r
+      JOIN cargo c ON c.id = r.cargo_id
+      LEFT JOIN deals d ON d.response_id = r.id
+      WHERE r.id = $1
+      FOR UPDATE
+    `, [responseId]);
+
+    if (!responseRes.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({success:false,error:"response not found"});
+    }
+
+    const row = responseRes.rows[0];
+
+    if (String(row.cargo_owner_id) !== String(user.user_id)) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({success:false,error:"not cargo owner"});
+    }
+
+    if (action === "reject") {
+      await client.query(`
+        UPDATE responses
+        SET status = 'rejected'
+        WHERE id = $1
+      `, [responseId]);
+
+      await client.query(`
+        INSERT INTO audit_log (user_id, cargo_id, action, payload)
+        VALUES ($1, $2, 'response_rejected', $3::jsonb)
+      `, [
+        user.user_id,
+        row.cargo_id,
+        JSON.stringify({response_id: responseId, source: "web_cabinet"})
+      ]);
+
+      await client.query("COMMIT");
+
+      io.emit("response_status_updated", {
+        response_id: responseId,
+        status: "rejected",
+        cargo_id: row.cargo_id,
+        truck_id: row.truck_id,
+        deal_id: null,
+        updated_at: new Date().toISOString()
+      });
+
+      return res.json({success:true,response_id:responseId,status:"rejected"});
+    }
+
+    await client.query(`
+      UPDATE responses
+      SET status = 'accepted'
+      WHERE id = $1
+    `, [responseId]);
+
+    let dealId = row.deal_id;
+    let createdDeal = false;
+
+    if (!dealId) {
+      const dealRes = await client.query(`
+        INSERT INTO deals (
+          response_id,
+          cargo_id,
+          truck_id,
+          status
+        )
+        VALUES ($1,$2,$3,'active')
+        RETURNING id
+      `, [responseId, row.cargo_id, row.truck_id]);
+
+      dealId = dealRes.rows[0].id;
+      createdDeal = true;
+    }
+
+    await client.query(`
+      INSERT INTO audit_log (user_id, deal_id, cargo_id, action, payload)
+      VALUES ($1, $2, $3, 'response_accepted', $4::jsonb)
+    `, [
+      user.user_id,
+      dealId,
+      row.cargo_id,
+      JSON.stringify({
+        response_id: responseId,
+        truck_id: row.truck_id,
+        source: "web_cabinet"
+      })
+    ]);
+
+    if (createdDeal) {
+      await client.query(`
+        INSERT INTO audit_log (user_id, deal_id, cargo_id, action, payload)
+        VALUES ($1, $2, $3, 'deal_created', $4::jsonb)
+      `, [
+        user.user_id,
+        dealId,
+        row.cargo_id,
+        JSON.stringify({
+          response_id: responseId,
+          truck_id: row.truck_id,
+          source: "web_cabinet"
+        })
+      ]);
+    }
+
+    const historyCount = await client.query(`
+      SELECT COUNT(*)::int AS cnt
+      FROM deal_status_history
+      WHERE deal_id = $1
+    `, [dealId]);
+
+    if (!historyCount.rows[0].cnt) {
+      await client.query(`
+        INSERT INTO deal_status_history (deal_id, status, created_by)
+        VALUES
+          ($1, 'active', $2),
+          ($1, 'driver_assigned', $2)
+      `, [dealId, user.user_id]);
+    }
+
+    await client.query("COMMIT");
+
+    io.emit("response_status_updated", {
+      response_id: responseId,
+      status: "accepted",
+      cargo_id: row.cargo_id,
+      truck_id: row.truck_id,
+      deal_id: dealId,
+      updated_at: new Date().toISOString()
+    });
+
+    return res.json({
+      success:true,
+      response_id:responseId,
+      status:"accepted",
+      deal_id:dealId
+    });
+
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch(e) {}
+    console.error("app response-action error", err);
+    return res.status(500).json({success:false,error:"server error"});
+  } finally {
+    client.release();
+  }
+});
+
+
+
 app.get("/api/app/my-deals", async (req, res) => {
   try {
     const auth = req.headers.authorization || "";
