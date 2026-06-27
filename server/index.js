@@ -470,12 +470,16 @@ app.get("/api/app/my-deals", async (req, res) => {
         shipper.full_name AS shipper_name,
         carrier.full_name AS carrier_name,
         d.created_at,
-        d.updated_at
+        d.updated_at,
+        my_review.id AS my_review_id
       FROM deals d
       LEFT JOIN cargo c ON c.id = d.cargo_id
       LEFT JOIN trucks t ON t.id = d.truck_id
       LEFT JOIN users shipper ON shipper.id = c.created_by
       LEFT JOIN users carrier ON carrier.id = t.driver_id
+      LEFT JOIN reviews my_review ON my_review.deal_id = d.id
+        AND my_review.from_user_id = $1
+        AND my_review.deleted_at IS NULL
       WHERE c.created_by = $1 OR t.driver_id = $1
       ORDER BY d.id DESC
       LIMIT 100
@@ -600,6 +604,117 @@ app.post("/api/app/deal-close", async (req, res) => {
     client.release();
   }
 });
+
+
+app.post("/api/app/deal-review", async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ")) {
+      return res.status(401).json({success:false,error:"token required"});
+    }
+
+    const b = req.body || {};
+    const dealId = parseInt(b.deal_id, 10);
+    const score = parseInt(b.score, 10);
+    const comment = String(b.comment || "").trim();
+
+    if (!dealId) return res.status(400).json({success:false,error:"deal_id required"});
+    if (!score || score < 1 || score > 5) return res.status(400).json({success:false,error:"score must be 1..5"});
+    if (comment.length < 3) return res.status(400).json({success:false,error:"comment too short"});
+
+    const tokenHash = crypto.createHash("sha256").update(auth.slice(7).trim()).digest("hex");
+
+    await client.query("BEGIN");
+
+    const sess = await client.query(`
+      SELECT s.user_id
+      FROM app_sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = $1
+        AND s.revoked_at IS NULL
+        AND s.expires_at > now()
+        AND COALESCE(u.banned,false) = false
+      LIMIT 1
+    `, [tokenHash]);
+
+    if (!sess.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({success:false,error:"session invalid"});
+    }
+
+    const userId = sess.rows[0].user_id;
+
+    const dealRes = await client.query(`
+      SELECT d.id,d.cargo_id,d.status,c.created_by AS shipper_id,
+             COALESCE(r.driver_id,t.driver_id) AS carrier_id
+      FROM deals d
+      JOIN cargo c ON c.id=d.cargo_id
+      JOIN trucks t ON t.id=d.truck_id
+      LEFT JOIN responses r ON r.id=d.response_id
+      WHERE d.id=$1
+    `, [dealId]);
+
+    if (!dealRes.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(404).json({success:false,error:"deal not found"});
+    }
+
+    const deal = dealRes.rows[0];
+
+    if (String(deal.shipper_id) !== String(userId)) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({success:false,error:"access denied"});
+    }
+
+    if (!["delivered","done","closed"].includes(deal.status)) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({success:false,error:"deal not finished"});
+    }
+
+    const old = await client.query(`
+      SELECT id FROM reviews
+      WHERE deal_id=$1 AND from_user_id=$2 AND deleted_at IS NULL
+      LIMIT 1
+    `, [dealId,userId]);
+
+    if (old.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(400).json({success:false,error:"review already exists"});
+    }
+
+    const complaint = score <= 2;
+
+    await client.query(`
+      INSERT INTO reviews
+      (deal_id,from_company_id,to_company_id,from_user_id,to_user_id,review_type,overall_score,comment,is_complaint)
+      VALUES ($1,1,1,$2,$3,'carrier',$4,$5,$6)
+    `, [dealId,userId,deal.carrier_id,score,comment,complaint]);
+
+    await client.query(`
+      INSERT INTO audit_log (user_id,deal_id,cargo_id,action,payload)
+      VALUES ($1,$2,$3,'review_created',$4::jsonb)
+    `, [userId,dealId,deal.cargo_id,JSON.stringify({
+      to_user_id:deal.carrier_id,
+      score:score,
+      review_type:"carrier",
+      is_complaint:complaint,
+      comment_len:comment.length,
+      source:"web_cabinet"
+    })]);
+
+    await client.query("COMMIT");
+    return res.json({success:true,deal_id:dealId,score:score});
+  } catch (err) {
+    try { await client.query("ROLLBACK"); } catch (_) {}
+    console.error("app deal-review error", err);
+    return res.status(500).json({success:false,error:"server error"});
+  } finally {
+    client.release();
+  }
+});
+
+
 
 app.get("/api/app/deal-timeline", async (req, res) => {
   try {

@@ -324,6 +324,7 @@ async function loadMyDeals(){
          <b>Безопасная сделка:</b> ${esc(dealSafeName(x.safe_deal_status))}<br>
          <b>Оплата:</b> ${esc(dealPaymentName(x.payment_status))}<br><br>
          ${x.side==="shipper" && ["delivered","done"].includes(x.status) ? `<button class="moreBtn" onclick="closeDealWeb('${esc(x.id)}')">&#9989; Закрыть доставку</button>` : ""}
+         ${x.side==="shipper" && !x.my_review_id && ["delivered","done","closed"].includes(x.status) ? `<button class="moreBtn" onclick="reviewDealWeb('${esc(x.id)}')">&#11088; Оценить перевозчика</button>` : ""}
          <button class="moreBtn" onclick="loadDealTimeline('${esc(x.id)}')">📍 Таймлайн</button>
          <a class="moreBtn" href="https://t.me/dalnoboybros_bot?start=dealchat_${esc(x.id)}" target="_blank" rel="noopener">💬 Чат в боте</a>
          <div id="timeline_${esc(x.id)}" class="cargoDetailsBody" style="display:none;margin-top:8px"></div>
@@ -365,6 +366,53 @@ async function closeDealWeb(id){
  }
 
  status("\u2705 \u0414\u043e\u0441\u0442\u0430\u0432\u043a\u0430 \u0437\u0430\u043a\u0440\u044b\u0442\u0430");
+ await loadMyDeals();
+}
+
+
+
+async function reviewDealWeb(id){
+ const token=localStorage.getItem("dalnoboy_token");
+
+ if(!token){
+   status("\u274c \u041d\u0443\u0436\u043d\u043e \u0432\u043e\u0439\u0442\u0438 \u0437\u0430\u043d\u043e\u0432\u043e");
+   return;
+ }
+
+ const scoreRaw=prompt("\u041e\u0446\u0435\u043d\u043a\u0430 \u043f\u0435\u0440\u0435\u0432\u043e\u0437\u0447\u0438\u043a\u0430 1-5");
+ if(scoreRaw===null){return;}
+
+ const score=parseInt(scoreRaw,10);
+ if(!score || score<1 || score>5){
+   status("\u274c \u041e\u0446\u0435\u043d\u043a\u0430 \u0434\u043e\u043b\u0436\u043d\u0430 \u0431\u044b\u0442\u044c \u043e\u0442 1 \u0434\u043e 5");
+   return;
+ }
+
+ const comment=prompt("\u0422\u0435\u043a\u0441\u0442 \u043e\u0442\u0437\u044b\u0432\u0430");
+ if(comment===null){return;}
+
+ if(comment.trim().length<3){
+   status("\u274c \u041e\u0442\u0437\u044b\u0432 \u0441\u043b\u0438\u0448\u043a\u043e\u043c \u043a\u043e\u0440\u043e\u0442\u043a\u0438\u0439");
+   return;
+ }
+
+ const r=await fetch("/api/app/deal-review",{
+   method:"POST",
+   headers:{
+     "Content-Type":"application/json",
+     Authorization:"Bearer "+token
+   },
+   body:JSON.stringify({deal_id:id,score:score,comment:comment.trim()})
+ });
+
+ const d=await r.json();
+
+ if(!d.success){
+   status("\u274c \u041e\u0442\u0437\u044b\u0432 \u043d\u0435 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d: "+(d.error||"error"));
+   return;
+ }
+
+ status("\u2705 \u041e\u0442\u0437\u044b\u0432 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d");
  await loadMyDeals();
 }
 
