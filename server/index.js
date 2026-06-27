@@ -469,6 +469,7 @@ app.get("/api/app/my-deals", async (req, res) => {
         c.price_currency,
         shipper.full_name AS shipper_name,
         carrier.full_name AS carrier_name,
+        t.driver_id AS carrier_user_id,
         d.created_at,
         d.updated_at,
         my_review.id AS my_review_id
@@ -711,6 +712,92 @@ app.post("/api/app/deal-review", async (req, res) => {
     return res.status(500).json({success:false,error:"server error"});
   } finally {
     client.release();
+  }
+});
+
+
+
+
+app.get("/api/app/carrier-profile", async (req, res) => {
+  try {
+    const auth = req.headers.authorization || "";
+    if (!auth.startsWith("Bearer ")) {
+      return res.status(401).json({success:false,error:"token required"});
+    }
+
+    const userId = parseInt(req.query.user_id, 10);
+    if (!userId) {
+      return res.status(400).json({success:false,error:"user_id required"});
+    }
+
+    const tokenHash = crypto.createHash("sha256").update(auth.slice(7).trim()).digest("hex");
+
+    const sess = await pool.query(`
+      SELECT s.user_id
+      FROM app_sessions s
+      JOIN users u ON u.id = s.user_id
+      WHERE s.token_hash = $1
+        AND s.revoked_at IS NULL
+        AND s.expires_at > now()
+        AND COALESCE(u.banned,false) = false
+      LIMIT 1
+    `, [tokenHash]);
+
+    if (!sess.rows.length) {
+      return res.status(401).json({success:false,error:"session invalid"});
+    }
+
+    const profileRes = await pool.query(`
+      SELECT id, full_name, role, verified, plan_type, created_at
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+    `, [userId]);
+
+    if (!profileRes.rows.length) {
+      return res.status(404).json({success:false,error:"user not found"});
+    }
+
+    const statsRes = await pool.query(`
+      SELECT
+        COUNT(*) AS reviews_count,
+        ROUND(AVG(overall_score)::numeric, 2) AS avg_score,
+        COUNT(*) FILTER (WHERE is_complaint=true OR overall_score <= 2) AS complaints_count
+      FROM reviews
+      WHERE to_user_id = $1
+        AND deleted_at IS NULL
+    `, [userId]);
+
+    const doneRes = await pool.query(`
+      SELECT COUNT(*) AS deals_done
+      FROM deals d
+      JOIN cargo c ON c.id = d.cargo_id
+      JOIN trucks t ON t.id = d.truck_id
+      LEFT JOIN responses r ON r.id = d.response_id
+      WHERE (c.created_by = $1 OR t.driver_id = $1 OR r.driver_id = $1)
+        AND d.status IN ('done','delivered','closed')
+    `, [userId]);
+
+    const reviewsRes = await pool.query(`
+      SELECT r.overall_score, r.comment, r.is_complaint, r.created_at, u.full_name AS from_name
+      FROM reviews r
+      LEFT JOIN users u ON u.id = r.from_user_id
+      WHERE r.to_user_id = $1
+        AND r.deleted_at IS NULL
+      ORDER BY r.id DESC
+      LIMIT 5
+    `, [userId]);
+
+    return res.json({
+      success:true,
+      profile: profileRes.rows[0],
+      stats: statsRes.rows[0],
+      deals_done: doneRes.rows[0].deals_done,
+      reviews: reviewsRes.rows
+    });
+  } catch (err) {
+    console.error("app carrier-profile error", err);
+    return res.status(500).json({success:false,error:"server error"});
   }
 });
 
