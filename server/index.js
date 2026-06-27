@@ -540,12 +540,21 @@ app.post("/api/app/response-action", async (req, res) => {
         r.cargo_id,
         r.truck_id,
         r.driver_id,
+        driver.telegram_id AS driver_telegram_id,
+        driver.full_name AS driver_name,
         c.created_by AS cargo_owner_id,
         c.from_city,
         c.to_city,
+        c.price_amount,
+        c.price_currency,
+        c.weight_kg,
+        c.volume_m3,
+        c.places_count,
+        c.rate_per_km,
         d.id AS deal_id
       FROM responses r
       JOIN cargo c ON c.id = r.cargo_id
+      JOIN users driver ON driver.id = r.driver_id
       LEFT JOIN deals d ON d.response_id = r.id
       WHERE r.id = $1
       FOR UPDATE
@@ -580,6 +589,24 @@ app.post("/api/app/response-action", async (req, res) => {
       ]);
 
       await client.query("COMMIT");
+
+      if (row.driver_telegram_id && BOT_TOKEN) {
+        try {
+          await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: row.driver_telegram_id,
+              text:
+                `❌ Ваш отклик отклонён\n\n` +
+                `📦 Груз #${row.cargo_id}\n` +
+                `🚩 ${row.from_city} → ${row.to_city}`
+            })
+          });
+        } catch(e) {
+          console.error("telegram reject response notify error", e);
+        }
+      }
 
       io.emit("response_status_updated", {
         response_id: responseId,
@@ -664,6 +691,40 @@ app.post("/api/app/response-action", async (req, res) => {
     }
 
     await client.query("COMMIT");
+
+    if (row.driver_telegram_id && BOT_TOKEN) {
+      try {
+        await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: row.driver_telegram_id,
+            text:
+              `✅ Ваш отклик принят!\n\n` +
+              `📦 Груз #${row.cargo_id}\n` +
+              `🚩 ${row.from_city} → ${row.to_city}\n` +
+              `⚖️ ${row.weight_kg || 0} кг\n` +
+              `📦 ${row.volume_m3 || 0} м³\n` +
+              `🔢 ${row.places_count || 0} мест\n` +
+              `💰 ${row.price_amount || "-"} ${row.price_currency || "RUB"}\n` +
+              `💵 ${row.rate_per_km || "-"} ₽/км\n\n` +
+              `🤝 Сделка #${dealId} создана`,
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "🤝 Открыть сделку", web_app: { url: "https://dalnoboybros.ru/cabinet/" } }
+                ],
+                [
+                  { text: "💬 Чат сделки", url: `https://t.me/dalnoboybros_bot?start=dealchat_${dealId}` }
+                ]
+              ]
+            }
+          })
+        });
+      } catch(e) {
+        console.error("telegram accept response notify error", e);
+      }
+    }
 
     io.emit("response_status_updated", {
       response_id: responseId,
