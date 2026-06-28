@@ -487,7 +487,7 @@ async function loadAppResponses(){
        <b>Цена:</b> ${esc(x.price_amount || "—")} ${esc(x.price_currency || "RUB")}<br>
        <b>Ставка:</b> ${esc(x.rate_per_km || "—")} ₽/км<br>
        <b>Статус:</b> ${esc(responseStatusName(x.status))}<br>
-       ${x.deal_id ? `<b>Сделка:</b> #${esc(x.deal_id)}<br><button class="moreBtn" onclick="loadMyDeals(\'${esc(x.deal_id)}\')">🤝 Открыть сделку</button>` : ""}
+       ${x.deal_id ? `<b>Сделка:</b> #${esc(x.deal_id)}<br><button class="moreBtn" onclick="loadMyDeals(\'${esc(x.deal_id)}\')">🤝 Открыть сделку</button> <a class="moreBtn" href="https://t.me/dalnoboybros_bot?start=dealchat_${esc(x.deal_id)}" target="_blank" rel="noopener">💬 Чат</a>` : ""}
      </div>
    `).join("");
  } else {
