@@ -415,6 +415,20 @@ async function loadAppResponses(){
    total: driver.length
  };
 
+ const driverCardStyle = (x)=>{
+   const st = String(x.status || "");
+   if(x.deal_id || st==="accepted"){return ' style="border:2px solid #22c55e;background:#f0fdf4;"';}
+   if(["pending","offered"].includes(st) && !x.deal_id){return ' style="border:2px solid #f59e0b;background:#fffbeb;"';}
+   return "";
+ };
+
+ const driverCardBadge = (x)=>{
+   const st = String(x.status || "");
+   if(x.deal_id || st==="accepted"){return '<div style="font-weight:800;color:#166534;margin-bottom:6px;">✅ ВАС ПРИНЯЛИ</div>';}
+   if(["pending","offered"].includes(st) && !x.deal_id){return '<div style="font-weight:800;color:#92400e;margin-bottom:6px;">⏳ ЖДЁТ ОТВЕТА</div>';}
+   return "";
+ };
+
  let html='<div class="cargoItem"><b>📨 Отклики</b></div>';
 
  html += `
@@ -465,7 +479,8 @@ async function loadAppResponses(){
 
  if(driver.length){
    html += driverSorted.map(x=>`
-     <div class="cargoItem">
+     <div class="cargoItem"${driverCardStyle(x)}>
+       ${driverCardBadge(x)}
        <b>Мой отклик #${esc(x.id)}</b><br>
        <b>Груз:</b> #${esc(x.cargo_id)} ${esc(x.from_city)} → ${esc(x.to_city)}<br>
        <b>Заказчик:</b> ${esc(x.owner_name || "—")}<br>
