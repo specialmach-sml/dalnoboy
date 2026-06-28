@@ -347,6 +347,25 @@ async function responseActionWeb(id, action){
 
  await loadAppResponses();
  await updateResponsesBadge();
+
+ if(action==="accept"){
+   const box=document.getElementById("dealsList");
+   if(box){
+     const dealId = d.deal_id || d.dealId || d.id || "";
+     const chatBtn = dealId
+       ? `<a class="moreBtn" href="https://t.me/dalnoboybros_bot?start=dealchat_${esc(dealId)}" target="_blank" rel="noopener">💬 Чат в боте</a>`
+       : `<a class="moreBtn" href="https://t.me/dalnoboybros_bot" target="_blank" rel="noopener">💬 Открыть бота</a>`;
+
+     box.insertAdjacentHTML("afterbegin", `
+       <div class="cargoItem" style="border:2px solid #22c55e;background:#f0fdf4;">
+         <b>✅ Сделка создана</b><br>
+         Перейдите в чат, чтобы обсудить погрузку, время, адрес и детали рейса.<br><br>
+         <button class="moreBtn" onclick="loadMyDeals(${dealId ? `'${esc(dealId)}'` : ""})">🤝 Открыть сделки</button>
+         ${chatBtn}
+       </div>
+     `);
+   }
+ }
 }
 
 async function loadAppResponses(){
