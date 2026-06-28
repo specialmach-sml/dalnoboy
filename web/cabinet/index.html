@@ -346,6 +346,7 @@ async function responseActionWeb(id, action){
  }
 
  await loadAppResponses();
+ await updateResponsesBadge();
 }
 
 async function loadAppResponses(){
@@ -742,6 +743,13 @@ async function check(){
 }
 function logout(){localStorage.removeItem("dalnoboy_token");location.reload()}
 check();
+
+setInterval(function(){
+  if(document.getElementById("responsesBtn")){
+    updateResponsesBadge();
+  }
+}, 60000);
+
 
 window.addEventListener("load", function(){
   const params = new URLSearchParams(window.location.search);
