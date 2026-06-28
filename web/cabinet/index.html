@@ -98,10 +98,42 @@ function renderActions(role){
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
    html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">Открыть бота</a>';
  }
- html += '<button class="actionBtn blue" onclick="loadAppResponses()">📨 Отклики</button>';
+ html += '<button id="responsesBtn" class="actionBtn blue" onclick="loadAppResponses()">📨 Отклики</button>';
  html += '<button class="actionBtn blue" onclick="loadMyDeals()">🤝 Сделки</button>';
  box.innerHTML=html;
  box.style.display="block";
+ updateResponsesBadge();
+}
+
+
+
+async function updateResponsesBadge(){
+ const btn=document.getElementById("responsesBtn");
+ if(!btn){return;}
+
+ btn.textContent="📨 Отклики";
+
+ const token=localStorage.getItem("dalnoboy_token");
+ if(!token){return;}
+
+ try{
+   const r=await fetch("/api/app/responses",{
+     headers:{Authorization:"Bearer "+token}
+   });
+
+   const d=await r.json();
+   if(!d.success){return;}
+
+   const owner=d.owner || [];
+   const cnt=owner.filter(x=>{
+     const st=String(x.status || "");
+     return ["pending","offered"].includes(st) && !x.deal_id;
+   }).length;
+
+   btn.textContent=cnt>0 ? `📨 Отклики (${cnt})` : "📨 Отклики";
+ }catch(e){
+   console.log("responses badge error", e);
+ }
 }
 
 
