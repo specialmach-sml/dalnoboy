@@ -712,7 +712,7 @@ app.post("/api/app/response-action", async (req, res) => {
             reply_markup: {
               inline_keyboard: [
                 [
-                  { text: "🤝 Открыть сделку", web_app: { url: "https://dalnoboybros.ru/cabinet/" } }
+                  { text: "🤝 Открыть сделку", web_app: { url: `https://dalnoboybros.ru/cabinet/?deal_id=${dealId}` } }
                 ],
                 [
                   { text: "💬 Чат сделки", url: `https://t.me/dalnoboybros_bot?start=dealchat_${dealId}` }

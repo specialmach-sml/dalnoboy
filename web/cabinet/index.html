@@ -366,7 +366,7 @@ async function loadAppResponses(){
          <b>Цена:</b> ${esc(x.price_amount || "—")} ${esc(x.price_currency || "RUB")}<br>
          <b>Ставка:</b> ${esc(x.rate_per_km || "—")} ₽/км<br>
          <b>Статус:</b> ${esc(responseStatusName(x.status))}<br>
-         ${x.deal_id ? `<b>Сделка:</b> #${esc(x.deal_id)}<br><button class="moreBtn" onclick="loadMyDeals()">🤝 Открыть сделки</button>` : ""}
+         ${x.deal_id ? `<b>Сделка:</b> #${esc(x.deal_id)}<br><button class="moreBtn" onclick="loadMyDeals(\'${esc(x.deal_id)}\')">🤝 Открыть сделку</button>` : ""}
          ${canAct ? `<br><button class="moreBtn" onclick="responseActionWeb('${esc(x.id)}','accept')">✅ Принять</button>
          <button class="moreBtn" onclick="responseActionWeb('${esc(x.id)}','reject')">❌ Отклонить</button>` : ""}
        </div>`;
@@ -386,7 +386,7 @@ async function loadAppResponses(){
        <b>Цена:</b> ${esc(x.price_amount || "—")} ${esc(x.price_currency || "RUB")}<br>
        <b>Ставка:</b> ${esc(x.rate_per_km || "—")} ₽/км<br>
        <b>Статус:</b> ${esc(responseStatusName(x.status))}<br>
-       ${x.deal_id ? `<b>Сделка:</b> #${esc(x.deal_id)}<br><button class="moreBtn" onclick="loadMyDeals()">🤝 Открыть сделки</button>` : ""}
+       ${x.deal_id ? `<b>Сделка:</b> #${esc(x.deal_id)}<br><button class="moreBtn" onclick="loadMyDeals(\'${esc(x.deal_id)}\')">🤝 Открыть сделку</button>` : ""}
      </div>
    `).join("");
  } else {
@@ -397,7 +397,7 @@ async function loadAppResponses(){
 }
 
 
-async function loadMyDeals(){
+async function loadMyDeals(targetDealId){
  const box=document.getElementById("dealsList");
  if(!box){status("❌ Блок сделок не найден");return;}
  const cargoBox=document.getElementById("cargoList");
@@ -435,7 +435,7 @@ async function loadMyDeals(){
  }
 
  box.innerHTML=deals.map(x=>`
-   <div class="cargoItem">
+   <div class="cargoItem" id="deal_${esc(x.id)}" style="${targetDealId && String(x.id)===String(targetDealId) ? 'border:2px solid #22c55e' : ''}">
      <div class="cargoTitle">🤝 Сделка #${esc(x.id)}<br>${esc(x.from_city || "—")} → ${esc(x.to_city || "—")}</div>
      <div class="cargoMeta">
        Роль: ${esc(dealSideName(x.side))}<br>
@@ -444,7 +444,7 @@ async function loadMyDeals(){
        💰 ${esc(x.client_price || x.carrier_price || x.cargo_price || "—")} ${esc(x.price_currency || "RUB")}
      </div>
      <span class="badge">${esc(dealStatusName(x.status))}</span>
-     <details class="cargoDetails">
+     <details class="cargoDetails" ${targetDealId && String(x.id)===String(targetDealId) ? 'open' : ''}>
        <summary>Подробнее</summary>
        <div class="cargoDetailsBody">
          <b>Груз:</b> #${esc(x.cargo_id || "—")}<br>
@@ -462,6 +462,13 @@ async function loadMyDeals(){
      </details>
    </div>
  `).join("");
+
+ if(targetDealId){
+   setTimeout(()=>{
+     const el=document.getElementById("deal_"+targetDealId);
+     if(el){el.scrollIntoView({behavior:"smooth",block:"center"});}
+   },200);
+ }
 }
 
 
@@ -703,6 +710,19 @@ async function check(){
 }
 function logout(){localStorage.removeItem("dalnoboy_token");location.reload()}
 check();
+
+window.addEventListener("load", function(){
+  const params = new URLSearchParams(window.location.search);
+  const dealId = params.get("deal_id");
+  if(dealId){
+    setTimeout(function(){
+      if(typeof loadMyDeals === "function"){
+        loadMyDeals(dealId);
+      }
+    }, 800);
+  }
+});
+
 </script>
 </body>
 </html>
