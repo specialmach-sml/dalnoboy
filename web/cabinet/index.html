@@ -391,7 +391,23 @@ async function loadAppResponses(){
 
  const ownerSorted = pendingFirst(owner);
 
+ const ownerStats = {
+   waiting: owner.filter(x=>["pending","offered"].includes(String(x.status || "")) && !x.deal_id).length,
+   accepted: owner.filter(x=>String(x.status || "")==="accepted" || x.deal_id).length,
+   rejected: owner.filter(x=>String(x.status || "")==="rejected").length,
+   total: owner.length
+ };
+
  let html='<div class="cargoItem"><b>📨 Отклики</b></div>';
+
+ html += `
+   <div class="cargoItem" style="background:#f8fafc;">
+     <b>📊 Сводка по моим грузам</b><br>
+     ⏳ Ожидают решения: <b>${ownerStats.waiting}</b><br>
+     ✅ Принято / сделка: <b>${ownerStats.accepted}</b><br>
+     ❌ Отклонено: <b>${ownerStats.rejected}</b><br>
+     Всего откликов: <b>${ownerStats.total}</b>
+   </div>`;
 
  html += '<div class="cargoItem"><b>Отклики на мои грузы</b></div>';
 
