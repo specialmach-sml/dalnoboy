@@ -398,6 +398,23 @@ async function loadAppResponses(){
    total: owner.length
  };
 
+ const driverRank = (x)=>{
+   const st = String(x.status || "");
+   if(x.deal_id || st==="accepted"){return 0;}
+   if(["pending","offered"].includes(st)){return 1;}
+   if(st==="rejected"){return 2;}
+   return 3;
+ };
+
+ const driverSorted = driver.slice().sort((a,b)=>driverRank(a)-driverRank(b));
+
+ const driverStats = {
+   waiting: driver.filter(x=>["pending","offered"].includes(String(x.status || "")) && !x.deal_id).length,
+   accepted: driver.filter(x=>String(x.status || "")==="accepted" || x.deal_id).length,
+   rejected: driver.filter(x=>String(x.status || "")==="rejected").length,
+   total: driver.length
+ };
+
  let html='<div class="cargoItem"><b>📨 Отклики</b></div>';
 
  html += `
@@ -437,8 +454,17 @@ async function loadAppResponses(){
 
  html += '<div class="cargoItem"><b>Мои отклики как перевозчика</b></div>';
 
+ html += `
+   <div class="cargoItem" style="background:#f8fafc;">
+     <b>📊 Сводка по моим откликам</b><br>
+     ⏳ Ждут ответа: <b>${driverStats.waiting}</b><br>
+     ✅ Приняли / сделка: <b>${driverStats.accepted}</b><br>
+     ❌ Отклонено: <b>${driverStats.rejected}</b><br>
+     Всего моих откликов: <b>${driverStats.total}</b>
+   </div>`;
+
  if(driver.length){
-   html += driver.map(x=>`
+   html += driverSorted.map(x=>`
      <div class="cargoItem">
        <b>Мой отклик #${esc(x.id)}</b><br>
        <b>Груз:</b> #${esc(x.cargo_id)} ${esc(x.from_city)} → ${esc(x.to_city)}<br>
