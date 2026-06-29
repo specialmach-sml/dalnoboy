@@ -324,14 +324,13 @@ function renderActions(role){
  const box=document.getElementById("actions");
  let html="";
  if(role==="shipper"){
-   html += '<a class="actionBtn green" href="/map.html">🗺 Карта грузов</a>';
+   html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
    html += '<button class="actionBtn blue" onclick="loadMyCargo()">📦 Мои грузы</button>';
-   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">➕ Создать груз в боте</a>';
-   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">💬 Открыть бота</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">➕ Создать груз</a>';
  } else if(role==="carrier"){
-   html += '<a class="actionBtn green" href="/map.html">🗺 Карта грузов</a>';
+   html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
    html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">🚚 Моя машина</a>';
-   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">📦 Найти грузы</a>';
+   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">📦 Грузы</a>';
  } else if(role==="dispatcher"){
    html += '<a class="actionBtn blue" href="/dispatcher/">👥 Кабинет диспетчера</a>';
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
