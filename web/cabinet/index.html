@@ -357,7 +357,7 @@ async function responseActionWeb(id, action){
        : `<a class="moreBtn" href="https://t.me/dalnoboybros_bot" target="_blank" rel="noopener">💬 Открыть бота</a>`;
 
      box.insertAdjacentHTML("afterbegin", `
-       <div class="cargoItem" style="border:2px solid #22c55e;background:#f0fdf4;">
+       <div class="cargoItem" style="border:2px solid #22c55e;background:#0f1b34;color:#e5eefc;">
          <b>✅ Сделка создана</b><br>
          Перейдите в чат, чтобы обсудить погрузку, время, адрес и детали рейса.<br><br>
          <button class="moreBtn" onclick="loadMyDeals(${dealId ? `'${esc(dealId)}'` : ""})">🤝 Открыть сделки</button>
@@ -436,22 +436,22 @@ async function loadAppResponses(){
 
  const driverCardStyle = (x)=>{
    const st = String(x.status || "");
-   if(x.deal_id || st==="accepted"){return ' style="border:2px solid #22c55e;background:#f0fdf4;"';}
-   if(["pending","offered"].includes(st) && !x.deal_id){return ' style="border:2px solid #f59e0b;background:#fffbeb;"';}
+   if(x.deal_id || st==="accepted"){return ' style="border:2px solid #22c55e;background:#0f1b34;color:#e5eefc;"';}
+   if(["pending","offered"].includes(st) && !x.deal_id){return ' style="border:2px solid #f59e0b;background:#0f1b34;color:#e5eefc;"';}
    return "";
  };
 
  const driverCardBadge = (x)=>{
    const st = String(x.status || "");
-   if(x.deal_id || st==="accepted"){return '<div style="font-weight:800;color:#166534;margin-bottom:6px;">✅ ВАС ПРИНЯЛИ</div>';}
-   if(["pending","offered"].includes(st) && !x.deal_id){return '<div style="font-weight:800;color:#92400e;margin-bottom:6px;">⏳ ЖДЁТ ОТВЕТА</div>';}
+   if(x.deal_id || st==="accepted"){return '<div style="font-weight:800;color:#4ade80;margin-bottom:6px;">✅ ВАС ПРИНЯЛИ</div>';}
+   if(["pending","offered"].includes(st) && !x.deal_id){return '<div style="font-weight:800;color:#fbbf24;margin-bottom:6px;">⏳ ЖДЁТ ОТВЕТА</div>';}
    return "";
  };
 
  let html='<div class="cargoItem"><b>📨 Отклики</b></div>';
 
  html += `
-   <div class="cargoItem" style="background:#f8fafc;">
+   <div class="cargoItem" style="background:#0f1b34;border:1px solid #334155;color:#e5eefc;">
      <b>📊 Сводка по моим грузам</b><br>
      ⏳ Ожидают решения: <b>${ownerStats.waiting}</b><br>
      ✅ Принято / сделка: <b>${ownerStats.accepted}</b><br>
@@ -464,8 +464,8 @@ async function loadAppResponses(){
  if(owner.length){
    html += ownerSorted.map(x=>{
      const canAct = ["pending","offered"].includes(String(x.status || "")) && !x.deal_id;
-     const waitStyle = canAct ? ' style="border:2px solid #22c55e;background:#f0fdf4;"' : "";
-     const waitBadge = canAct ? '<div style="font-weight:800;color:#166534;margin-bottom:6px;">⏳ ОЖИДАЕТ РЕШЕНИЯ</div>' : "";
+     const waitStyle = canAct ? ' style="border:2px solid #22c55e;background:#0f1b34;color:#e5eefc;"' : "";
+     const waitBadge = canAct ? '<div style="font-weight:800;color:#4ade80;margin-bottom:6px;">⏳ ОЖИДАЕТ РЕШЕНИЯ</div>' : "";
      return `
        <div class="cargoItem"${waitStyle}>
          ${waitBadge}
@@ -488,7 +488,7 @@ async function loadAppResponses(){
  html += '<div class="cargoItem"><b>Мои отклики как перевозчика</b></div>';
 
  html += `
-   <div class="cargoItem" style="background:#f8fafc;">
+   <div class="cargoItem" style="background:#0f1b34;border:1px solid #334155;color:#e5eefc;">
      <b>📊 Сводка по моим откликам</b><br>
      ⏳ Ждут ответа: <b>${driverStats.waiting}</b><br>
      ✅ Приняли / сделка: <b>${driverStats.accepted}</b><br>
