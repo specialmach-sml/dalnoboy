@@ -5,17 +5,25 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Дальнобой — кабинет</title>
 <style>
-body{margin:0;font-family:Arial;background:#0f172a;color:#e5e7eb;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
-.card{max-width:420px;width:100%;background:#111827;border:1px solid #334155;border-radius:18px;padding:22px}
-input,button{width:100%;padding:14px;border-radius:12px;margin-top:12px;font-size:18px}
+body{margin:0;font-family:Arial;background:#0f172a;color:#e5e7eb;min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:10px}
+.card{max-width:390px;width:100%;background:#111827;border:1px solid #334155;border-radius:16px;padding:12px}
+h2{margin:4px 0 10px;font-size:22px}
+p{margin:6px 0 10px;line-height:1.25}
+body.logged-in h2{font-size:18px;margin:0 0 8px}
+body.logged-in .loginText{display:none}
+body.logged-in #status{display:none}
+input,button{width:100%;box-sizing:border-box;padding:12px;border-radius:12px;margin-top:10px;font-size:16px}
 input{background:#020617;color:white;border:1px solid #475569;letter-spacing:2px}
 button{background:#22c55e;color:#052e16;border:0;font-weight:700}
-.status,.profile{margin-top:14px;background:#020617;border:1px solid #334155;border-radius:12px;padding:12px;white-space:pre-wrap}
+.status,.profile{margin-top:10px;background:#020617;border:1px solid #334155;border-radius:12px;padding:10px;white-space:pre-wrap}
 .profile{display:none}
-.row{display:flex;justify-content:space-between;border-bottom:1px solid #1e293b;padding:7px 0}
+body.logged-in .profile{padding:8px 10px}
+body.logged-in .profile .row{font-size:13px;padding:4px 0}
+body.logged-in .profile button{padding:9px;margin-top:8px;font-size:14px}
+.row{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #1e293b;padding:7px 0}
 
-.actions{display:none;margin-top:14px}
-.actionBtn{display:block;text-align:center;text-decoration:none;background:#334155;color:#e5e7eb;padding:12px;border-radius:12px;margin-top:10px;font-weight:700}
+.actions{display:none;margin-top:10px}
+.actionBtn{display:flex;align-items:center;justify-content:center;box-sizing:border-box;width:100%;min-height:42px;text-align:center;text-decoration:none;background:#334155;color:#e5e7eb;padding:10px 12px;border-radius:11px;margin-top:8px;font-weight:800;font-size:14px;line-height:1.15;border:0;cursor:pointer}
 .actionBtn.green{background:#22c55e;color:#052e16}
 .actionBtn.blue{background:#38bdf8;color:#082f49}
 
@@ -35,12 +43,205 @@ button{background:#22c55e;color:#052e16;border:0;font-weight:700}
 .filterBar{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
 .filterBtn{padding:9px;border-radius:10px;background:#334155;color:#e5e7eb;border:0;font-size:13px;cursor:pointer}
 .filterBtn.active{background:#38bdf8;color:#082f49;font-weight:800}
+
+/* FORCE COMPACT WORK CABINET */
+body.logged-in{
+  align-items:flex-start !important;
+  padding-top:10px !important;
+}
+body.logged-in .card{
+  max-width:380px !important;
+  padding:10px 12px !important;
+  border-radius:14px !important;
+}
+body.logged-in h2{
+  margin:0 0 6px !important;
+  font-size:18px !important;
+  line-height:1.15 !important;
+}
+body.logged-in .loginText,
+body.logged-in #loginBox,
+body.logged-in #status{
+  display:none !important;
+}
+body.logged-in #profile{
+  display:block !important;
+  background:transparent !important;
+  border:0 !important;
+  padding:0 !important;
+  margin:0 0 8px !important;
+}
+body.logged-in #profile .row,
+body.logged-in .profileRows{
+  display:none !important;
+}
+body.logged-in #profile button,
+body.logged-in .compactProfile button{
+  width:100% !important;
+  min-height:34px !important;
+  padding:7px 10px !important;
+  margin:0 !important;
+  font-size:13px !important;
+  border-radius:9px !important;
+}
+body.logged-in .compactProfile{
+  display:block !important;
+  background:transparent !important;
+  border:0 !important;
+  padding:0 !important;
+  margin:0 !important;
+}
+body.logged-in .compactProfile > div{
+  display:none !important;
+}
+body.logged-in .actions{
+  margin-top:6px !important;
+}
+body.logged-in .actionBtn{
+  min-height:38px !important;
+  margin-top:7px !important;
+  padding:8px 10px !important;
+  font-size:14px !important;
+  border-radius:10px !important;
+}
+body.logged-in .hint{
+  margin-top:6px !important;
+  font-size:12px !important;
+}
+
+
+/* COMPACT HEADER WITH LOGO */
+#compactTopBar{
+  display:none;
+}
+
+body.logged-in #compactTopBar{
+  display:block !important;
+  margin:0 0 8px !important;
+}
+
+body.logged-in h2{
+  display:none !important;
+}
+
+body.logged-in .compactBrand{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:6px;
+  padding:2px 0 6px;
+}
+
+body.logged-in .brandLogo{
+  width:54px;
+  height:54px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  border-radius:16px;
+  border:1px solid #334155;
+  background:linear-gradient(180deg,#132648 0%,#0d1b34 100%);
+  box-shadow:0 4px 18px rgba(0,0,0,.25);
+  font-size:28px;
+}
+
+body.logged-in .brandUser{
+  text-align:center;
+  font-size:13px;
+  font-weight:700;
+  color:#e5eefc;
+  line-height:1.2;
+}
+
+body.logged-in .brandUser span{
+  color:#93c5fd;
+  font-weight:600;
+  margin-left:4px;
+}
+
+
+/* SMALL REAL LOGO FIX */
+body.logged-in #profile{
+  white-space:normal !important;
+  line-height:0 !important;
+  font-size:0 !important;
+  min-height:0 !important;
+  overflow:hidden !important;
+}
+body.logged-in .brandLogo{
+  background:#020617 !important;
+  overflow:hidden !important;
+}
+body.logged-in .brandLogo img{
+  max-width:44px !important;
+  max-height:44px !important;
+  display:block !important;
+}
+body.logged-in .compactBrand{
+  padding:0 0 4px !important;
+  gap:4px !important;
+}
+body.logged-in #compactTopBar{
+  margin-bottom:4px !important;
+}
+body.logged-in #profile button{
+  margin-top:2px !important;
+  margin-bottom:6px !important;
+  line-height:1.2 !important;
+  font-size:13px !important;
+}
+
+
+/* BIGGER CABINET LOGO */
+body.logged-in .brandLogo{
+  width:86px !important;
+  height:86px !important;
+  border-radius:18px !important;
+}
+
+body.logged-in .brandLogo img{
+  max-width:78px !important;
+  max-height:78px !important;
+}
+
+body.logged-in .compactBrand{
+  gap:7px !important;
+  padding:0 0 8px !important;
+}
+
+body.logged-in .brandUser{
+  font-size:14px !important;
+}
+
+
+/* HIDE OLD HINT AND BIGGER LOGO */
+body.logged-in #cargoHint{
+  display:none !important;
+}
+
+body.logged-in .brandLogo{
+  width:102px !important;
+  height:102px !important;
+  border-radius:20px !important;
+}
+
+body.logged-in .brandLogo img{
+  max-width:94px !important;
+  max-height:94px !important;
+}
+
+body.logged-in .compactBrand{
+  gap:8px !important;
+  padding:0 0 10px !important;
+}
+
 </style>
 </head>
 <body>
 <div class="card">
 <h2>🚛 Дальнобой</h2>
-<p>Напишите в Telegram-боте <b>/login</b>, получите код и введите его здесь.</p>
+<p class="loginText">Напишите в Telegram-боте <b>/login</b>, получите код и введите его здесь.</p>
 
 <div id="loginBox">
 <input id="code" placeholder="12345678" inputmode="numeric">
@@ -75,7 +276,51 @@ document.getElementById("cargoList").addEventListener("click", function(e){
  }
 });
 
+
+function roleName(v){
+ const m = {
+   shipper:"заказчик",
+   carrier:"перевозчик",
+   dispatcher:"диспетчер",
+   admin:"админ"
+ };
+ return m[v] || v || "";
+}
+
+function renderCompactHeader(){
+ const profile = document.getElementById("profile");
+ if(!profile){return;}
+
+ let top = document.getElementById("compactTopBar");
+ if(!top){
+   top = document.createElement("div");
+   top.id = "compactTopBar";
+   profile.parentNode.insertBefore(top, profile);
+ }
+
+ const nameDom = document.getElementById("fullName")?.textContent || "";
+ const roleDom = document.getElementById("role")?.textContent || "";
+ const planDom = document.getElementById("plan")?.textContent || "";
+
+ const name = currentUserName || (nameDom && nameDom !== "—" ? nameDom : "Пользователь");
+ const role = roleName(currentUserRole || (roleDom !== "—" ? roleDom : ""));
+ const plan = currentUserPlan || (planDom !== "—" ? planDom : "");
+
+ top.innerHTML = `
+   <div class="compactBrand">
+     <div class="brandLogo" title="Дальнобой"><img src="/assets/logo.png" alt="Дальнобой"></div>
+     <div class="brandUser">
+       ${esc(name)}
+       ${role ? `<span>• ${esc(role)}</span>` : ""}
+       ${plan ? `<span>• ${esc(plan)}</span>` : ""}
+     </div>
+   </div>`;
+}
+
 function renderActions(role){
+ document.body.classList.add("logged-in");
+ renderCompactHeader();
+ setTimeout(renderCompactHeader,50);
  const box=document.getElementById("actions");
  let html="";
  if(role==="shipper"){
@@ -158,6 +403,10 @@ function humanStatus(v){
  return m[v] || v || "—";
 }
 
+
+let currentUserName="";
+let currentUserRole="";
+let currentUserPlan="";
 
 let appCargo=[];
 let cargoFilter="all";
