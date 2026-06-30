@@ -236,6 +236,42 @@ body.logged-in .compactBrand{
   padding:0 0 10px !important;
 }
 
+
+/* BETTER CREATE CARGO FORM */
+body.logged-in #createCargoBox{
+  padding:14px !important;
+}
+
+body.logged-in #createCargoBox input,
+body.logged-in #createCargoBox select,
+body.logged-in #createCargoBox textarea{
+  display:block !important;
+  width:100% !important;
+  box-sizing:border-box !important;
+  margin:0 0 10px !important;
+  padding:12px 14px !important;
+  border-radius:14px !important;
+  border:1px solid #334155 !important;
+  background:#020617 !important;
+  color:#e5eefc !important;
+  font-size:15px !important;
+  outline:none !important;
+}
+
+body.logged-in #createCargoBox textarea{
+  min-height:86px !important;
+  resize:vertical !important;
+}
+
+body.logged-in #createCargoBox select{
+  appearance:auto !important;
+}
+
+body.logged-in #createCargoBox button{
+  width:100% !important;
+  margin:8px 0 0 !important;
+}
+
 </style>
 </head>
 <body>
@@ -257,11 +293,35 @@ body.logged-in .compactBrand{
 </div>
 
 <div id="actions" class="actions"></div>
+
+<div id="createCargoBox" class="detailBox" style="display:none;">
+  <b>➕ Создать груз</b><br><br>
+
+  <input id="newFromCity" placeholder="Откуда" autocomplete="off">
+  <input id="newToCity" placeholder="Куда" autocomplete="off">
+  <input id="newPrice" type="number" placeholder="Цена, руб.">
+  <input id="newWeightKg" type="number" placeholder="Вес, кг">
+  <input id="newVolumeM3" type="number" placeholder="Объём, м3">
+  <input id="newPlacesCount" type="number" placeholder="Мест">
+
+  <select id="newCargoType">
+    <option value="full">Полная загрузка</option>
+    <option value="partial">Догруз</option>
+    <option value="parcel">Посылка</option>
+    <option value="mail">Документы</option>
+  </select>
+
+  <textarea id="newCargoDescription" placeholder="Описание груза"></textarea>
+
+  <button onclick="submitCabinetCargo()">✅ Создать</button>
+  <button onclick="hideCreateCargoForm()">Отмена</button>
+
+  <div id="createCargoStatus" class="muted"></div>
+</div>
+
 <div id="cargoDetail" class="detailBox"></div>
 <div id="cargoList" class="cargoBox"></div>
 <div id="dealsList" class="cargoList"></div>
-<div id="cargoHint" class="hint">Нажмите на груз, чтобы открыть подробности</div>
-
 <div id="status" class="status">Готово к входу.</div>
 </div>
 
@@ -326,7 +386,7 @@ function renderActions(role){
  if(role==="shipper"){
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
    html += '<button class="actionBtn blue" onclick="loadMyCargo()">📦 Мои грузы</button>';
-   html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">➕ Создать груз</a>';
+   html += '<button class="actionBtn" onclick="showCreateCargoForm()">➕ Создать груз</button>';
  } else if(role==="carrier"){
    html += '<a class="actionBtn green" href="/map.html">🗺 Карта</a>';
    html += '<a class="actionBtn" href="https://t.me/dalnoboybros_bot">🚚 Моя машина</a>';
@@ -406,6 +466,7 @@ function humanStatus(v){
 let currentUserName="";
 let currentUserRole="";
 let currentUserPlan="";
+let currentTelegramId="";
 
 let appCargo=[];
 let cargoFilter="all";
@@ -1049,6 +1110,95 @@ function hideCargoDetail(){
  box.innerHTML="";
 }
 
+
+function createCargoValue(id){
+ const el=document.getElementById(id);
+ return el ? String(el.value || "").trim() : "";
+}
+
+function setCreateCargoStatus(text){
+ const el=document.getElementById("createCargoStatus");
+ if(el) el.textContent=text || "";
+}
+
+function showCreateCargoForm(){
+ const box=document.getElementById("createCargoBox");
+ if(!box) return;
+ box.style.display="block";
+ const detail=document.getElementById("cargoDetail");
+ if(detail) detail.style.display="none";
+ setCreateCargoStatus("");
+ setTimeout(()=>document.getElementById("newFromCity")?.focus(),50);
+}
+
+function hideCreateCargoForm(){
+ const box=document.getElementById("createCargoBox");
+ if(box) box.style.display="none";
+ setCreateCargoStatus("");
+}
+
+async function submitCabinetCargo(){
+ if(!currentTelegramId){
+   setCreateCargoStatus("❌ Не найден Telegram ID. Выйдите и войдите снова.");
+   return;
+ }
+
+ const fromCity=createCargoValue("newFromCity");
+ const toCity=createCargoValue("newToCity");
+ const price=Number(createCargoValue("newPrice") || 0);
+
+ if(!fromCity || !toCity || price<=0){
+   setCreateCargoStatus("❌ Заполните Откуда, Куда и цену.");
+   return;
+ }
+
+ const payload={
+   telegram_id: currentTelegramId,
+   from_city: fromCity,
+   to_city: toCity,
+   price_amount: price,
+   description: createCargoValue("newCargoDescription") || "Груз из кабинета",
+   weight_kg: Number(createCargoValue("newWeightKg") || 0),
+   volume_m3: Number(createCargoValue("newVolumeM3") || 0),
+   places_count: Number(createCargoValue("newPlacesCount") || 0),
+   cargo_type: createCargoValue("newCargoType") || "full"
+ };
+
+ setCreateCargoStatus("⏳ Создаю груз...");
+
+ try{
+   const r=await fetch("/api/cargo/create",{
+     method:"POST",
+     headers:{"Content-Type":"application/json"},
+     body:JSON.stringify(payload)
+   });
+
+   const data=await r.json();
+
+   if(!data.success){
+     setCreateCargoStatus("❌ Ошибка: "+(data.error || "unknown"));
+     return;
+   }
+
+   setCreateCargoStatus("✅ Груз создан #"+data.cargo_id);
+
+   ["newFromCity","newToCity","newPrice","newWeightKg","newVolumeM3","newPlacesCount","newCargoDescription"].forEach(id=>{
+     const el=document.getElementById(id);
+     if(el) el.value="";
+   });
+
+   const type=document.getElementById("newCargoType");
+   if(type) type.value="full";
+
+   if(typeof loadMyCargo==="function"){
+     loadMyCargo();
+   }
+ }catch(e){
+   setCreateCargoStatus("❌ Ошибка сети: "+e.message);
+ }
+}
+
+
 function show(data){
  document.getElementById("loginBox").style.display="none";
  document.getElementById("profile").style.display="block";
@@ -1056,6 +1206,12 @@ function show(data){
  role.textContent=data.user.role||"—";
  plan.textContent=data.user.plan_type||"—";
  telegramId.textContent=data.user.telegram_id||"—";
+
+ currentUserName = data.user.full_name || "";
+ currentUserRole = data.user.role || "";
+ currentUserPlan = data.user.plan_type || "";
+ currentTelegramId = data.user.telegram_id || "";
+
  status("✅ Вход выполнен");
  renderActions(data.user.role);
 }
