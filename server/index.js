@@ -912,8 +912,8 @@ app.post("/api/app/response-action", async (req, res) => {
       JOIN users driver ON driver.id = r.driver_id
       LEFT JOIN deals d ON d.response_id = r.id
       WHERE r.id = $1
-      FOR UPDATE
-    `, [responseId]);
+      FOR UPDATE OF r, c
+      `, [responseId]);
 
     if (!responseRes.rows.length) {
       await client.query("ROLLBACK");
