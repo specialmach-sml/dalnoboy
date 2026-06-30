@@ -272,6 +272,31 @@ body.logged-in #createCargoBox button{
   margin:8px 0 0 !important;
 }
 
+
+/* BIND PHONE FORM STYLE */
+body.logged-in #bindPhoneBox{
+  padding:14px !important;
+}
+
+body.logged-in #bindPhoneBox input{
+  display:block !important;
+  width:100% !important;
+  box-sizing:border-box !important;
+  margin:0 0 10px !important;
+  padding:12px 14px !important;
+  border-radius:14px !important;
+  border:1px solid #334155 !important;
+  background:#020617 !important;
+  color:#e5eefc !important;
+  font-size:15px !important;
+  outline:none !important;
+}
+
+body.logged-in #bindPhoneBox button{
+  width:100% !important;
+  margin:8px 0 0 !important;
+}
+
 </style>
 </head>
 <body>
@@ -293,6 +318,17 @@ body.logged-in #createCargoBox button{
 </div>
 
 <div id="actions" class="actions"></div>
+
+<div id="bindPhoneBox" class="detailBox" style="display:none;">
+  <b>📱 Сохранить телефон</b><br>
+  <div class="muted" style="margin:8px 0 12px;">
+    Пока без SMS-подтверждения. Номер только сохраняется в профиль.
+  </div>
+  <input id="bindPhoneInput" placeholder="+7 900 000-00-00" autocomplete="tel">
+  <button onclick="submitBindPhone()">✅ Сохранить телефон</button>
+  <button onclick="hideBindPhoneForm()">Отмена</button>
+  <div id="bindPhoneStatus" class="muted"></div>
+</div>
 
 <div id="createCargoBox" class="detailBox" style="display:none;">
   <b>➕ Создать груз</b><br><br>
@@ -404,7 +440,8 @@ function renderActions(role){
  }
  html += '<button id="responsesBtn" class="actionBtn blue" onclick="loadAppResponses()">📨 Отклики</button>';
  html += '<button class="actionBtn blue" onclick="loadMyDeals()">🤝 Сделки</button>';
- box.innerHTML=html;
+ html += '<button class="actionBtn" onclick="showBindPhoneForm()">📱 Сохранить телефон</button>';
+box.innerHTML=html;
  box.style.display="block";
  updateResponsesBadge();
 }
@@ -1108,6 +1145,75 @@ function hideCargoDetail(){
  const box=document.getElementById("cargoDetail");
  box.style.display="none";
  box.innerHTML="";
+}
+
+
+
+function setBindPhoneStatus(text){
+ const el=document.getElementById("bindPhoneStatus");
+ if(el) el.textContent=text || "";
+}
+
+function showBindPhoneForm(){
+ const box=document.getElementById("bindPhoneBox");
+ if(!box) return;
+ box.style.display="block";
+
+ const createBox=document.getElementById("createCargoBox");
+ if(createBox) createBox.style.display="none";
+
+ const detail=document.getElementById("cargoDetail");
+ if(detail) detail.style.display="none";
+
+ setBindPhoneStatus("");
+ setTimeout(()=>document.getElementById("bindPhoneInput")?.focus(),50);
+}
+
+function hideBindPhoneForm(){
+ const box=document.getElementById("bindPhoneBox");
+ if(box) box.style.display="none";
+ setBindPhoneStatus("");
+}
+
+async function submitBindPhone(){
+ const input=document.getElementById("bindPhoneInput");
+ const phone=String(input?.value || "").trim();
+
+ if(!phone){
+   setBindPhoneStatus("❌ Введите телефон.");
+   return;
+ }
+
+ const token=localStorage.getItem("dalnoboy_token") || "";
+
+ if(!token){
+   setBindPhoneStatus("❌ Нет сессии. Войдите заново.");
+   return;
+ }
+
+ setBindPhoneStatus("⏳ Сохраняю телефон...");
+
+ try{
+   const r=await fetch("/api/app/bind-phone",{
+     method:"POST",
+     headers:{
+       "Content-Type":"application/json",
+       "Authorization":"Bearer "+token
+     },
+     body:JSON.stringify({phone})
+   });
+
+   const data=await r.json();
+
+   if(!data.success){
+     setBindPhoneStatus("❌ Ошибка: "+(data.error || "unknown"));
+     return;
+   }
+
+   setBindPhoneStatus("✅ Телефон сохранён: "+data.phone+". SMS-проверка будет позже.");
+ }catch(e){
+   setBindPhoneStatus("❌ Ошибка сети: "+e.message);
+ }
 }
 
 

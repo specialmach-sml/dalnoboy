@@ -434,6 +434,101 @@ async function getAppUserFromReq(req) {
   return r.rows[0] || null;
 }
 
+
+app.post("/api/app/bind-phone", async (req, res) => {
+  try {
+    const user = await getAppUserFromReq(req);
+
+    if (!user) {
+      return res.status(401).json({
+        success: false,
+        error: "session invalid"
+      });
+    }
+
+    const rawPhone = String((req.body && req.body.phone) || "").trim();
+    const digits = rawPhone.replace(/\D/g, "");
+
+    if (digits.length < 10 || digits.length > 15) {
+      return res.status(400).json({
+        success: false,
+        error: "invalid phone"
+      });
+    }
+
+    let phone = "+" + digits;
+
+    if (digits.length === 10) {
+      phone = "+7" + digits;
+    }
+
+    if (digits.length === 11 && digits[0] === "8") {
+      phone = "+7" + digits.slice(1);
+    }
+
+    if (digits.length === 11 && digits[0] === "7") {
+      phone = "+7" + digits.slice(1);
+    }
+
+    const exists = await pool.query(
+      `
+      SELECT id
+      FROM users
+      WHERE phone = $1
+        AND id <> $2
+      LIMIT 1
+      `,
+      [phone, user.user_id]
+    );
+
+    if (exists.rows.length) {
+      return res.status(409).json({
+        success: false,
+        error: "phone already used"
+      });
+    }
+
+    await pool.query(
+      `
+      UPDATE users
+      SET phone = $1,
+          phone_verified = false,
+          phone_verified_at = NULL
+      WHERE id = $2
+      `,
+      [phone, user.user_id]
+    );
+
+    await pool.query(
+      `
+      INSERT INTO audit_log (user_id, action, payload)
+      VALUES ($1, 'phone_bound', $2::jsonb)
+      `,
+      [
+        user.user_id,
+        JSON.stringify({
+          source: "cabinet",
+          phone
+        })
+      ]
+    );
+
+    return res.json({
+      success: true,
+      phone,
+      phone_verified: false
+    });
+  } catch (err) {
+    console.error("bind phone error", err);
+    return res.status(500).json({
+      success: false,
+      error: "server error"
+    });
+  }
+});
+
+
+
 app.get("/api/app/responses", async (req, res) => {
   try {
     const user = await getAppUserFromReq(req);
