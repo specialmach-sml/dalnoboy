@@ -326,6 +326,11 @@ body.logged-in #bindPhoneBox button{
   </div>
   <input id="bindPhoneInput" placeholder="+7 900 000-00-00" autocomplete="tel">
   <button onclick="submitBindPhone()">✅ Сохранить телефон</button>
+  <button onclick="requestPhoneCode()">📩 Получить код в Telegram</button>
+
+  <input id="phoneCodeInput" placeholder="Код из Telegram" inputmode="numeric" maxlength="6">
+  <button onclick="verifyPhoneCode()">✅ Подтвердить код</button>
+
   <button onclick="hideBindPhoneForm()">Отмена</button>
   <div id="bindPhoneStatus" class="muted"></div>
 </div>
@@ -1211,6 +1216,80 @@ async function submitBindPhone(){
    }
 
    setBindPhoneStatus("✅ Телефон сохранён: "+data.phone+". SMS-проверка будет позже.");
+ }catch(e){
+   setBindPhoneStatus("❌ Ошибка сети: "+e.message);
+ }
+}
+
+
+
+async function requestPhoneCode(){
+ const token=localStorage.getItem("dalnoboy_token") || "";
+
+ if(!token){
+   setBindPhoneStatus("❌ Нет сессии. Войдите заново.");
+   return;
+ }
+
+ setBindPhoneStatus("⏳ Отправляю код в Telegram...");
+
+ try{
+   const r=await fetch("/api/app/request-phone-code",{
+     method:"POST",
+     headers:{
+       "Content-Type":"application/json",
+       "Authorization":"Bearer "+token
+     },
+     body:JSON.stringify({})
+   });
+
+   const data=await r.json();
+
+   if(!data.success){
+     setBindPhoneStatus("❌ Ошибка: "+(data.error || "unknown"));
+     return;
+   }
+
+   setBindPhoneStatus("✅ Код отправлен в Telegram. Введите его ниже.");
+ }catch(e){
+   setBindPhoneStatus("❌ Ошибка сети: "+e.message);
+ }
+}
+
+async function verifyPhoneCode(){
+ const token=localStorage.getItem("dalnoboy_token") || "";
+ const code=String(document.getElementById("phoneCodeInput")?.value || "").trim();
+
+ if(!token){
+   setBindPhoneStatus("❌ Нет сессии. Войдите заново.");
+   return;
+ }
+
+ if(!code){
+   setBindPhoneStatus("❌ Введите код из Telegram.");
+   return;
+ }
+
+ setBindPhoneStatus("⏳ Проверяю код...");
+
+ try{
+   const r=await fetch("/api/app/verify-phone-code",{
+     method:"POST",
+     headers:{
+       "Content-Type":"application/json",
+       "Authorization":"Bearer "+token
+     },
+     body:JSON.stringify({code})
+   });
+
+   const data=await r.json();
+
+   if(!data.success){
+     setBindPhoneStatus("❌ Ошибка: "+(data.error || "unknown"));
+     return;
+   }
+
+   setBindPhoneStatus("✅ Телефон подтверждён.");
  }catch(e){
    setBindPhoneStatus("❌ Ошибка сети: "+e.message);
  }

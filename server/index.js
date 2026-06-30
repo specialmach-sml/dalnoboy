@@ -529,6 +529,266 @@ app.post("/api/app/bind-phone", async (req, res) => {
 
 
 
+
+app.post("/api/app/request-phone-code", async (req, res) => {
+  try {
+    const user = await getAppUserFromReq(req);
+
+    if (!user) {
+      return res.status(401).json({ success: false, error: "session invalid" });
+    }
+
+    const userResult = await pool.query(
+      `
+      SELECT id, telegram_id, phone, phone_verified
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [user.user_id]
+    );
+
+    if (!userResult.rows.length) {
+      return res.status(404).json({ success: false, error: "user not found" });
+    }
+
+    const u = userResult.rows[0];
+
+    if (!u.phone) {
+      return res.status(400).json({ success: false, error: "phone not saved" });
+    }
+
+    if (!u.telegram_id) {
+      return res.status(400).json({ success: false, error: "telegram not linked" });
+    }
+
+    if (!BOT_TOKEN) {
+      return res.status(500).json({ success: false, error: "bot token missing" });
+    }
+
+    const recent = await pool.query(
+      `
+      SELECT id
+      FROM phone_verification_codes
+      WHERE user_id = $1
+        AND used_at IS NULL
+        AND created_at > now() - interval '1 minute'
+      LIMIT 1
+      `,
+      [u.id]
+    );
+
+    if (recent.rows.length) {
+      return res.status(429).json({
+        success: false,
+        error: "wait before requesting new code"
+      });
+    }
+
+    await pool.query(
+      `
+      UPDATE phone_verification_codes
+      SET used_at = now()
+      WHERE user_id = $1
+        AND used_at IS NULL
+      `,
+      [u.id]
+    );
+
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    const codeHash = crypto
+      .createHash("sha256")
+      .update(code + ":" + u.id + ":" + u.phone)
+      .digest("hex");
+
+    await pool.query(
+      `
+      INSERT INTO phone_verification_codes (
+        user_id,
+        phone,
+        code_hash,
+        expires_at
+      )
+      VALUES ($1, $2, $3, now() + interval '10 minutes')
+      `,
+      [u.id, u.phone, codeHash]
+    );
+
+    const tgText =
+      "📱 Код подтверждения телефона в Дальнобой: " + code +
+      "\n\nКод действует 10 минут. Никому его не сообщайте.";
+
+    const tgResponse = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: u.telegram_id,
+        text: tgText
+      })
+    });
+
+    const tgData = await tgResponse.json().catch(() => ({}));
+
+    if (!tgResponse.ok || tgData.ok === false) {
+      console.error("telegram phone code send error", tgData);
+      return res.status(500).json({
+        success: false,
+        error: "telegram send failed"
+      });
+    }
+
+    await pool.query(
+      `
+      INSERT INTO audit_log (user_id, action, payload)
+      VALUES ($1, 'phone_code_requested', $2::jsonb)
+      `,
+      [
+        u.id,
+        JSON.stringify({
+          source: "cabinet",
+          phone: u.phone
+        })
+      ]
+    );
+
+    return res.json({
+      success: true,
+      message: "code sent"
+    });
+  } catch (err) {
+    console.error("request phone code error", err);
+    return res.status(500).json({ success: false, error: "server error" });
+  }
+});
+
+
+
+
+app.post("/api/app/verify-phone-code", async (req, res) => {
+  try {
+    const user = await getAppUserFromReq(req);
+
+    if (!user) {
+      return res.status(401).json({ success: false, error: "session invalid" });
+    }
+
+    const rawCode = String((req.body && req.body.code) || "").trim();
+    const code = rawCode.replace(/\D/g, "");
+
+    if (code.length !== 6) {
+      return res.status(400).json({ success: false, error: "invalid code" });
+    }
+
+    const userResult = await pool.query(
+      `
+      SELECT id, phone
+      FROM users
+      WHERE id = $1
+      LIMIT 1
+      `,
+      [user.user_id]
+    );
+
+    if (!userResult.rows.length || !userResult.rows[0].phone) {
+      return res.status(400).json({ success: false, error: "phone not saved" });
+    }
+
+    const u = userResult.rows[0];
+
+    const codeResult = await pool.query(
+      `
+      SELECT id, code_hash, attempts
+      FROM phone_verification_codes
+      WHERE user_id = $1
+        AND phone = $2
+        AND used_at IS NULL
+        AND expires_at > now()
+      ORDER BY id DESC
+      LIMIT 1
+      `,
+      [u.id, u.phone]
+    );
+
+    if (!codeResult.rows.length) {
+      return res.status(400).json({ success: false, error: "code expired or missing" });
+    }
+
+    const row = codeResult.rows[0];
+
+    if (Number(row.attempts || 0) >= 5) {
+      await pool.query(
+        "UPDATE phone_verification_codes SET used_at = now() WHERE id = $1",
+        [row.id]
+      );
+
+      return res.status(429).json({
+        success: false,
+        error: "too many attempts"
+      });
+    }
+
+    const checkHash = crypto
+      .createHash("sha256")
+      .update(code + ":" + u.id + ":" + u.phone)
+      .digest("hex");
+
+    if (checkHash !== row.code_hash) {
+      await pool.query(
+        "UPDATE phone_verification_codes SET attempts = attempts + 1 WHERE id = $1",
+        [row.id]
+      );
+
+      return res.status(400).json({
+        success: false,
+        error: "wrong code"
+      });
+    }
+
+    await pool.query(
+      `
+      UPDATE phone_verification_codes
+      SET used_at = now()
+      WHERE id = $1
+      `,
+      [row.id]
+    );
+
+    await pool.query(
+      `
+      UPDATE users
+      SET phone_verified = true,
+          phone_verified_at = now()
+      WHERE id = $1
+      `,
+      [u.id]
+    );
+
+    await pool.query(
+      `
+      INSERT INTO audit_log (user_id, action, payload)
+      VALUES ($1, 'phone_verified', $2::jsonb)
+      `,
+      [
+        u.id,
+        JSON.stringify({
+          source: "cabinet",
+          phone: u.phone
+        })
+      ]
+    );
+
+    return res.json({
+      success: true,
+      phone_verified: true
+    });
+  } catch (err) {
+    console.error("verify phone code error", err);
+    return res.status(500).json({ success: false, error: "server error" });
+  }
+});
+
+
+
 app.get("/api/app/responses", async (req, res) => {
   try {
     const user = await getAppUserFromReq(req);
