@@ -1696,7 +1696,6 @@ app.get("/api/trucks/active", async (req, res) => {
       WHERE t.latitude IS NOT NULL
         AND t.longitude IS NOT NULL
         AND t.status='active'
-        AND t.location_updated_at > now() - interval '24 hours'
       ORDER BY t.location_updated_at DESC NULLS LAST
       LIMIT 500
     `);
