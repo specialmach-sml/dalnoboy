@@ -469,6 +469,37 @@ window.io=function(){return{on:function(){},emit:function(){},disconnect:functio
 })();
 </script>
 
+
+<!-- DLN_MAP_TELEGRAM_AUTH_HEADER_V1 -->
+<script>
+(function(){
+  var oldFetch = window.fetch ? window.fetch.bind(window) : null;
+  if (!oldFetch) return;
+
+  window.fetch = function(url, opt) {
+    opt = opt || {};
+    var u = String((url && url.url) || url || "");
+
+    if (u.indexOf("/api/") >= 0) {
+      var initData = "";
+      try {
+        initData = window.Telegram && Telegram.WebApp && Telegram.WebApp.initData
+          ? Telegram.WebApp.initData
+          : "";
+      } catch(e) {}
+
+      if (initData) {
+        var headers = new Headers(opt.headers || {});
+        headers.set("X-Telegram-Init-Data", initData);
+        opt.headers = headers;
+      }
+    }
+
+    return oldFetch(url, opt);
+  };
+})();
+</script>
+
 </head>
 <body>
 <div id="map"></div>

@@ -15,6 +15,105 @@ const io = new Server(server, { cors: { origin: "*" } });
 app.use(cors());
 app.use(express.json());
 
+// === TELEGRAM_MAP_API_AUTH_V1 ===
+function verifyTelegramInitData(initData) {
+  try {
+    if (!BOT_TOKEN || !initData || typeof initData !== "string") {
+      return { ok: false };
+    }
+
+    const params = new URLSearchParams(initData);
+    const hash = params.get("hash");
+    if (!hash) return { ok: false };
+
+    params.delete("hash");
+
+    const dataCheckString = Array.from(params.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([k, v]) => `${k}=${v}`)
+      .join("\n");
+
+    const secretKey = crypto
+      .createHmac("sha256", "WebAppData")
+      .update(BOT_TOKEN)
+      .digest();
+
+    const calculatedHash = crypto
+      .createHmac("sha256", secretKey)
+      .update(dataCheckString)
+      .digest("hex");
+
+    const a = Buffer.from(hash, "hex");
+    const b = Buffer.from(calculatedHash, "hex");
+
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      return { ok: false };
+    }
+
+    const authDate = Number(params.get("auth_date") || 0);
+    const ageSec = Math.floor(Date.now() / 1000) - authDate;
+    if (!authDate || ageSec < -300 || ageSec > 604800) {
+      return { ok: false };
+    }
+
+    let user = null;
+    try {
+      const rawUser = params.get("user");
+      if (rawUser) user = JSON.parse(rawUser);
+    } catch (_) {}
+
+    return { ok: true, user };
+  } catch (_) {
+    return { ok: false };
+  }
+}
+
+function requireTelegramWebApp(req, res, next) {
+  const initData = req.get("x-telegram-init-data") || "";
+  const verified = verifyTelegramInitData(initData);
+
+  if (!verified.ok) {
+    return res.status(401).json({
+      success: false,
+      error: "telegram_webapp_auth_required"
+    });
+  }
+
+  const signedId = verified.user && verified.user.id ? String(verified.user.id) : "";
+  const claimedId = String(
+    (req.query && req.query.telegram_id) ||
+    (req.body && req.body.telegram_id) ||
+    ""
+  );
+
+  if (claimedId && signedId && claimedId !== signedId) {
+    return res.status(403).json({
+      success: false,
+      error: "telegram_id_mismatch"
+    });
+  }
+
+  req.telegramWebAppUser = verified.user || null;
+  return next();
+}
+
+const protectedMapApiPaths = new Set([
+  "/api/cargo/open",
+  "/api/trucks/active",
+  "/api/nearby",
+  "/api/truck/location",
+  "/api/me/truck",
+  "/api/cargo/create"
+]);
+
+app.use((req, res, next) => {
+  if (req.method === "OPTIONS") return next();
+  if (!protectedMapApiPaths.has(req.path)) return next();
+  return requireTelegramWebApp(req, res, next);
+});
+// === END TELEGRAM_MAP_API_AUTH_V1 ===
+
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: {
