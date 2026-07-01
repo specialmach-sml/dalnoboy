@@ -2387,6 +2387,89 @@ app.get("/api/matching/open-cargo", async (req, res) => {
 
 
 
+
+
+app.get("/api/me/truck", async (req, res) => {
+  try {
+    const telegramId = req.query.telegram_id;
+
+    if (!telegramId) {
+      return res.status(400).json({
+        success: false,
+        error: "telegram_id_required"
+      });
+    }
+
+    const result = await pool.query(`
+      SELECT
+        t.id,
+        t.driver_id,
+        t.current_city,
+        t.body_type,
+        t.status,
+        t.capacity_tons,
+        t.volume_m3,
+        t.length_m,
+        t.comment,
+        t.latitude,
+        t.longitude,
+        t.location_updated_at,
+        t.min_rate_per_km,
+        t.search_radius_km,
+        t.notifications_enabled,
+        t.notify_profitable_only,
+        t.available_tons,
+        t.available_volume_m3,
+        t.allow_partial_load,
+        t.route_from,
+        t.route_to,
+        t.photo_url,
+        u.telegram_id,
+        u.full_name,
+        u.telegram_username
+      FROM users u
+      LEFT JOIN LATERAL (
+        SELECT *
+        FROM trucks t
+        WHERE t.driver_id = u.id
+        ORDER BY
+          CASE WHEN t.status = 'active' THEN 0 ELSE 1 END,
+          t.id DESC
+        LIMIT 1
+      ) t ON true
+      WHERE u.telegram_id = $1
+      LIMIT 1
+    `, [telegramId]);
+
+    if (!result.rows.length) {
+      return res.status(404).json({
+        success: false,
+        error: "user_not_found"
+      });
+    }
+
+    const row = result.rows[0];
+
+    if (!row.id) {
+      return res.status(404).json({
+        success: false,
+        error: "truck_not_found"
+      });
+    }
+
+    return res.json({
+      success: true,
+      truck: row
+    });
+  } catch (e) {
+    console.error("api me truck error", e);
+    return res.status(500).json({
+      success: false,
+      error: "server_error"
+    });
+  }
+});
+
 app.post("/api/truck/location", async (req, res) => {
   try {
     const telegramId = req.body.telegram_id;
