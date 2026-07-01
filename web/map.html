@@ -1546,6 +1546,36 @@ document.addEventListener('DOMContentLoaded', function() {
 }
 </style>
 
+
+<!-- DLN_MAP_MOBILE_COMPACT_SHEETS_V2 -->
+<style>
+@media(max-width:900px){
+html,body{overflow:hidden!important;height:100%!important}
+#map{width:100vw!important;height:100vh!important}
+#createCargoBtn,#openCargoListBtn{position:fixed!important;top:8px!important;z-index:5000!important;min-height:38px!important;padding:0 12px!important;border-radius:999px!important;font-size:12px!important;font-weight:800!important;box-shadow:0 8px 24px #0005!important}
+#createCargoBtn{right:8px!important;background:#1976d2!important}
+#openCargoListBtn{right:132px!important;background:#455a64!important}
+body.cargo-list-open #createCargoBtn,body.cargo-list-open #openCargoListBtn,body.create-form-open #createCargoBtn,body.create-form-open #openCargoListBtn{display:none!important}
+#panel{display:none!important;position:fixed!important;left:8px!important;right:8px!important;top:auto!important;bottom:8px!important;width:auto!important;height:auto!important;max-height:48vh!important;min-height:190px!important;border-radius:20px!important;padding:10px!important;z-index:4700!important;background:rgba(255,255,255,.98)!important;box-shadow:0 -14px 42px #0006!important;overflow:hidden!important}
+#panel.mobile-open{display:flex!important;flex-direction:column!important}
+#panelHeader{flex:0 0 auto!important;padding-bottom:6px!important}
+#panelTitleLine b{font-size:14px!important}
+#statOneLine{font-size:10px!important;gap:5px!important;max-height:28px!important;overflow:hidden!important}
+#panel .toolbar{flex-wrap:nowrap!important;overflow-x:auto!important;gap:5px!important;padding-bottom:2px!important}
+#panel .toolbar::-webkit-scrollbar{display:none!important}
+#panel .toolbar .btn,#panel .toolbar .input{flex:0 0 auto!important}
+#cargoList{flex:1 1 auto!important;min-height:0!important;max-height:none!important;overflow-y:auto!important;margin-top:6px!important}
+.cargo-card{font-size:12px!important;padding:9px!important;margin:6px 0!important;border-radius:14px!important;background:#fff!important}
+.cargo-card-title{font-size:12px!important}
+.cargo-card-meta{font-size:11px!important}
+#closeCargoPanelBtn{display:inline-flex!important;align-items:center!important;justify-content:center!important;min-width:36px!important;min-height:32px!important;background:#e53935!important}
+#createCargoPanel{display:none;position:fixed!important;left:8px!important;right:8px!important;top:auto!important;bottom:8px!important;width:auto!important;height:auto!important;max-height:72vh!important;border-radius:20px!important;padding:12px!important;z-index:4800!important;overflow-y:auto!important;background:rgba(255,255,255,.98)!important;box-shadow:0 -14px 42px #0006!important}
+#createCargoPanel .input,#createCargoPanel input,#createCargoPanel select,#createCargoPanel textarea{min-height:38px!important;font-size:13px!important;border-radius:12px!important}
+#createCargoPanel .btn,#createCargoPanel button{min-height:38px!important;font-size:12px!important;border-radius:12px!important}
+}
+@media(max-width:370px){#openCargoListBtn{right:122px!important}#createCargoBtn,#openCargoListBtn{font-size:11px!important;padding:0 10px!important}}
+</style>
+
 </body>
 </html>
 
