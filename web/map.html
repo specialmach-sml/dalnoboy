@@ -1388,7 +1388,18 @@ function toggleAutoRefresh() {
 
 function setupSocket() {
   try {
-    const socket = io();
+    const socket = io({
+      query: {
+        initData: (window.Telegram && Telegram.WebApp && Telegram.WebApp.initData)
+          ? Telegram.WebApp.initData
+          : ""
+      },
+      auth: {
+        initData: (window.Telegram && Telegram.WebApp && Telegram.WebApp.initData)
+          ? Telegram.WebApp.initData
+          : ""
+      }
+    }); // DLN_MAP_SOCKET_AUTH_QUERY_V2
     socket.on('connect', () => console.log('socket connected'));
 
     socket.on('truck_location_updated', data => {

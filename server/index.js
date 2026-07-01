@@ -11,7 +11,21 @@ const { Server } = require("socket.io");
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, {
+  cors: { origin: "*" },
+
+  // === TELEGRAM_SOCKET_ALLOW_REQUEST_V1 ===
+  allowRequest: (req, callback) => {
+    try {
+      const url = new URL(req.url || "", "http://localhost");
+      const initData = url.searchParams.get("initData") || "";
+      const verified = verifyTelegramInitData(initData);
+      return callback(null, !!verified.ok);
+    } catch (_) {
+      return callback(null, false);
+    }
+  }
+});
 app.use(cors());
 app.use(express.json());
 
@@ -3362,6 +3376,38 @@ app.get("/", (req, res) => {
 app.get("/map", (req, res) => {
   res.sendFile("/root/dalnoboy/web/map.html");
 });
+
+
+
+// === TELEGRAM_SOCKET_AUTH_V1 ===
+io.use((socket, next) => {
+  try {
+    const initData =
+      (socket.handshake &&
+       socket.handshake.auth &&
+       socket.handshake.auth.initData) ||
+      (socket.handshake &&
+       socket.handshake.query &&
+       socket.handshake.query.initData) ||
+      "";
+
+    const verified = verifyTelegramInitData(initData);
+
+    if (!verified.ok) {
+      const err = new Error("telegram_webapp_auth_required");
+      err.data = { code: "telegram_webapp_auth_required" };
+      return next(err);
+    }
+
+    socket.telegramWebAppUser = verified.user || null;
+    return next();
+  } catch (e) {
+    const err = new Error("telegram_socket_auth_error");
+    err.data = { code: "telegram_socket_auth_error" };
+    return next(err);
+  }
+});
+// === END TELEGRAM_SOCKET_AUTH_V1 ===
 
 io.on("connection", (socket) => {
   console.log("Socket connected:", socket.id);
