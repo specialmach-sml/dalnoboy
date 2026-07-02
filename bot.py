@@ -6519,7 +6519,12 @@ async def myresponses(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    await target.reply_text(f"📨 Мои отклики\nНайдено: {len(rows)}")
+    await target.reply_text(
+        f"📨 Мои отклики\n"
+        f"Найдено: {len(rows)}\n"
+        f"TG ID: {tg_user.id}\n"
+        f"user_id: {user_id}"
+    )
 
     names = {
         "pending": "🟡 На рассмотрении",
