@@ -145,6 +145,7 @@ def main_reply_keyboard(role="carrier", verified=True, roles=None):
             ["📍 Рядом", "🧩 Догрузы"],
             ["🟢 Выгодные", "📨 Отклики"],
             ["🤝 Сделки", "🛡 Админ"],
+            ["📁 Архив сделок"],
             ["💳 Тарифы", "⚙️ Настройки"],
             ["👤 Профиль"]
         ]
@@ -6812,10 +6813,17 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
     forced_user = context.user_data.pop("_forced_effective_user", None)
     only_deal_id = context.user_data.pop("_deal_only_id", None)
     archive_mode = context.user_data.pop("_deals_archive_mode", False)
-    user_id = await ensure_user(forced_user or update.effective_user)
+
+    tg_user = forced_user or (q.from_user if q else update.effective_user)
+    target = q.message if q and q.message else update.message
+    if not target:
+        return
+
+    user_id = await ensure_user(tg_user)
 
     rows = await DB.fetch("""
         SELECT
@@ -6860,9 +6868,14 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if not rows:
         if archive_mode:
-            await update.message.reply_text("📁 Архив сделок пуст")
+            await target.reply_text("📁 Архив сделок пуст")
         else:
-            await update.message.reply_text("📭 Активных сделок нет")
+            await target.reply_text(
+                "📭 Активных сделок нет",
+                reply_markup=InlineKeyboardMarkup([
+                    [InlineKeyboardButton("📁 Архив сделок", callback_data="menu_deals_archive")]
+                ])
+            )
         return
 
     for r in rows:
@@ -6967,7 +6980,7 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         kb = InlineKeyboardMarkup(buttons)
 
-        await update.message.reply_text(text, reply_markup=kb)
+        await target.reply_text(text, reply_markup=kb)
 
 
 
@@ -8378,7 +8391,7 @@ async def deal_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data["_forced_effective_user"] = q.from_user
     context.user_data["_deal_only_id"] = deal_id
     fake_update = Update(update.update_id, message=q.message)
-    return await deals_list(fake_update, context)
+    return await deals_list(update, context)
 
 
 
@@ -10047,6 +10060,10 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
         return await nearby_profit(update, context)
     if text == "🤝 Сделки":
         return await deals_list(update, context)
+
+    if "Архив сделок" in text:
+        context.user_data["_deals_archive_mode"] = True
+        return await deals_list(update, context)
     if text == "📁 Архив сделок":
         return await deals_archive(update, context)
     if text == "⚙️ Настройки":
@@ -11144,9 +11161,14 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if q.data == "menu_today":
         return await today(fake_update, context)
+    if q.data == "menu_deals_archive":
+        context.user_data["_forced_effective_user"] = q.from_user
+        context.user_data["_deals_archive_mode"] = True
+        return await deals_list(update, context)
+
     if q.data == "menu_deals":
         context.user_data["_forced_effective_user"] = q.from_user
-        return await deals_list(fake_update, context)
+        return await deals_list(update, context)
     if q.data == "menu_responses":
         return await responses_list(fake_update, context)
 
