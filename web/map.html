@@ -1035,8 +1035,9 @@ function formatPrice(value) {
 function formatRate(rate) {
   if (rate === null || rate === undefined || rate === '') return 'нет ставки';
   const n = Number(rate);
-  if (isNaN(n) || n <= 0) return 'нет ставки';
-  return n.toFixed(2) + ' ₽/км';
+  if (!Number.isFinite(n) || n <= 0) return 'нет ставки';
+  const rounded = Math.round(n * 100) / 100;
+  return rounded.toFixed(2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1') + ' ₽/км';
 }
 
 function escapeHtml(value) {
