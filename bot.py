@@ -6482,37 +6482,80 @@ async def dealmsg(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+
 async def myresponses(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = await ensure_user(update.effective_user)
+    q = update.callback_query
+    tg_user = q.from_user if q else update.effective_user
+    target = q.message if q and q.message else update.message
+    if not target:
+        return
+    user_id = await ensure_user(tg_user)
 
     rows = await DB.fetch("""
         SELECT
             r.id,
-            r.status,
+            r.status AS response_status,
             c.id AS cargo_id,
             c.from_city,
             c.to_city,
             c.price_amount,
-            c.price_currency
+            c.price_currency,
+            c.status AS cargo_status,
+            d.id AS deal_id,
+            d.status AS deal_status
         FROM responses r
         JOIN cargo c ON c.id = r.cargo_id
+        LEFT JOIN deals d ON d.response_id = r.id
         WHERE r.driver_id=$1
         ORDER BY r.id DESC
-        LIMIT 20
+        LIMIT 30
     """, user_id)
 
     if not rows:
-        await update.message.reply_text("📭 Вы ещё не откликались")
+        await target.reply_text(
+            "📭 Вы ещё не откликались\n\n"
+            "Откройте 📦 Грузы или 🗺 Карту и нажмите 🚛 Откликнуться."
+        )
         return
 
+    await target.reply_text(f"📨 Мои отклики\nНайдено: {len(rows)}")
+
+    names = {
+        "pending": "🟡 На рассмотрении",
+        "accepted": "✅ Принят",
+        "rejected": "❌ Отклонён",
+        "cancelled": "⚪ Отменён"
+    }
+
     for r in rows:
-        await update.message.reply_text(
-            f"📨 Мой отклик #{r['id']}\n"
+        text = (
+            f"📨 Отклик #{r['id']}\n"
             f"📦 Груз #{r['cargo_id']}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
-            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
-            f"📊 Статус: {human_status(r['status'])}"
+            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or 'RUB'}\n"
+            f"📊 Отклик: {names.get(r['response_status'], human_status(r['response_status']))}\n"
+            f"📦 Груз: {human_status(r['cargo_status'])}"
         )
+
+        kb = None
+
+        if r["deal_id"]:
+            text += f"\n🤝 Сделка #{r['deal_id']} · {human_status(r['deal_status'])}"
+            kb = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("💬 Чат", callback_data=f"deal_chat_{r['deal_id']}"),
+                    InlineKeyboardButton("📍 Таймлайн", callback_data=f"deal_timeline_{r['deal_id']}")
+                ],
+                [
+                    InlineKeyboardButton("📄 Документы", callback_data=f"deal_docs_{r['deal_id']}")
+                ]
+            ])
+        elif r["response_status"] == "pending":
+            kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("⏳ Ждём решения заказчика", callback_data="noop")]
+            ])
+
+        await target.reply_text(text, reply_markup=kb)
 
 
 async def responses_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -11108,7 +11151,7 @@ async def menu_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return await responses_list(fake_update, context)
 
     if q.data == "menu_myresponses":
-        return await myresponses(fake_update, context)
+        return await myresponses(update, context)
     if q.data == "menu_mysubs":
         return await mysubs(fake_update, context)
     if q.data == "menu_nearby":
