@@ -3254,10 +3254,13 @@ async def mycargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if r["status"] == "cancelled":
             kb = InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ Опубликовать снова", callback_data=f"cargo_open_{r['id']}")],
+                [InlineKeyboardButton("📨 Отклики", callback_data=f"cargo_responses_{r['id']}")],
                 [InlineKeyboardButton("🗑 Удалить груз", callback_data=f"cargo_delete_{r['id']}")]
             ])
         else:
             kb = InlineKeyboardMarkup([
+                [InlineKeyboardButton("👁 Открыть", callback_data=f"cargo_open_{r['id']}")],
+                [InlineKeyboardButton("📨 Отклики", callback_data=f"cargo_responses_{r['id']}")],
                 [InlineKeyboardButton("❌ Снять груз", callback_data=f"cargo_cancel_{r['id']}")],
                 [InlineKeyboardButton("🔁 Повторить", callback_data=f"cargo_clone_{r['id']}")],
                 [InlineKeyboardButton("🔝 Поднять груз", callback_data=f"cargo_refresh_{r['id']}")],
@@ -3282,6 +3285,115 @@ async def mycargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 
+
+
+
+async def cargo_responses(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    q = update.callback_query
+    await q.answer()
+
+    user_id = await ensure_user(q.from_user)
+    cargo_id = int(q.data.split("_")[2])
+
+    cargo = await DB.fetchrow("""
+        SELECT id, created_by, from_city, to_city, price_amount, price_currency, status
+        FROM cargo
+        WHERE id=$1
+    """, cargo_id)
+
+    if not cargo:
+        await q.message.reply_text("❌ Груз не найден")
+        return
+
+    if cargo["created_by"] != user_id:
+        await q.message.reply_text("⛔ Смотреть отклики можно только по своему грузу")
+        return
+
+    rows = await DB.fetch("""
+        SELECT
+            r.id,
+            r.status,
+            u.full_name,
+            
+            t.id AS truck_id,
+            t.current_city,
+            t.body_type,
+            t.capacity_tons,
+            t.volume_m3,
+            d.id AS deal_id,
+            d.status AS deal_status
+        FROM responses r
+        LEFT JOIN users u ON u.id = r.driver_id
+        LEFT JOIN trucks t ON t.id = r.truck_id
+        LEFT JOIN deals d ON d.response_id = r.id
+        WHERE r.cargo_id=$1
+        ORDER BY
+            CASE WHEN r.status='pending' THEN 0
+                 WHEN r.status='accepted' THEN 1
+                 ELSE 2 END,
+            r.id DESC
+        LIMIT 30
+    """, cargo_id)
+
+    if not rows:
+        await q.message.reply_text(
+            f"📭 Откликов пока нет\n\n"
+            f"📦 Груз #{cargo['id']}\n"
+            f"🚩 {cargo['from_city']} → {cargo['to_city']}\n"
+            f"💰 {format_price(cargo['price_amount'])} {cargo['price_currency'] or 'RUB'}"
+        )
+        return
+
+    await q.message.reply_text(
+        f"📨 Отклики по грузу #{cargo['id']}\n"
+        f"🚩 {cargo['from_city']} → {cargo['to_city']}\n"
+        f"💰 {format_price(cargo['price_amount'])} {cargo['price_currency'] or 'RUB'}\n"
+        f"📊 Статус груза: {human_status(cargo['status'])}\n\n"
+        f"Найдено: {len(rows)}"
+    )
+
+    names = {
+        "pending": "🟡 Новый",
+        "accepted": "✅ Принят",
+        "rejected": "❌ Отклонён",
+        "cancelled": "⚪ Отменён"
+    }
+
+    for r in rows:
+        driver = r["full_name"] or "Перевозчик"
+        username = "-"
+        truck = f"🚚 Машина #{r['truck_id']}" if r["truck_id"] else "🚚 Машина не указана"
+
+        text = (
+            f"📨 Отклик #{r['id']}\n"
+            f"{names.get(r['status'], r['status'])}\n"
+            f"👤 {driver} ({username})\n"
+            f"{truck}\n"
+        )
+
+        details = []
+        if r["current_city"]:
+            details.append(f"📍 {r['current_city']}")
+        if r["body_type"]:
+            details.append(f"Кузов: {r['body_type']}")
+        if r["capacity_tons"]:
+            details.append(f"{r['capacity_tons']} т")
+        if r["volume_m3"]:
+            details.append(f"{r['volume_m3']} м³")
+        if details:
+            text += " · ".join(details) + "\n"
+
+        if r["deal_id"]:
+            text += f"🤝 Сделка #{r['deal_id']} · {human_status(r['deal_status'])}\n"
+
+        kb = None
+        if r["status"] == "pending":
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Принять", callback_data=f"accept_{r['id']}"),
+                InlineKeyboardButton("❌ Отклонить", callback_data=f"reject_{r['id']}")
+            ]])
+
+        await q.message.reply_text(text, reply_markup=kb)
 
 
 async def cargo_promo_request(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -10534,7 +10646,7 @@ async def dispatcher_client_card_button(update: Update, context: ContextTypes.DE
     potential_commission = turnover_done * commission / 100
 
     kind = "🚚 Перевозчик" if r["client_type"] == "carrier" else "📦 Грузоотправитель"
-    username = f"@{r['telegram_username']}" if r["telegram_username"] else "-"
+    username = "-"
 
     text = (
         f"👤 Клиент #{r['id']}\n\n"
@@ -11555,6 +11667,7 @@ def main():
     app.add_handler(newcargo_handler)
 
     app.add_handler(CallbackQueryHandler(cargo_promo_request, pattern="^cargo_promo_"))
+    app.add_handler(CallbackQueryHandler(cargo_responses, pattern="^cargo_responses_"))
     app.add_handler(CallbackQueryHandler(cargo_refresh, pattern="^cargo_refresh_"))
     app.add_handler(CallbackQueryHandler(cargo_clone, pattern="^cargo_clone_"))
     app.add_handler(CallbackQueryHandler(cargo_cancel, pattern="^cargo_cancel_"))
