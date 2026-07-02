@@ -958,9 +958,33 @@ async function submitCreatedCargo() {
   .then(data => {
     if (data.success) {
       alert('✅ Груз создан #' + data.cargo_id + '\nРасстояние: ' + distanceKm + ' км\nСтавка: ' + formatRate(data.rate_per_km));
-      document.getElementById('createCargoPanel').style.display = 'none';
+
+      const createdCargo = data.cargo || {};
+      const createdId = Number(data.cargo_id || createdCargo.id || 0);
+      const createdLat = Number(createdCargo.load_latitude || pickupPoint.lat);
+      const createdLon = Number(createdCargo.load_longitude || pickupPoint.lng);
+
+      const createPanel = document.getElementById('createCargoPanel');
+      if (createPanel) createPanel.style.display = 'none';
+      document.body.classList.remove('create-form-open');
+
       clearCreateForm(false);
       refreshCargoCurrent();
+
+      if (Number.isFinite(createdLat) && Number.isFinite(createdLon)) {
+        map.setView([createdLat, createdLon], 12);
+      }
+
+      setTimeout(function() {
+        try {
+          refreshCargoCurrent();
+          if (createdId && typeof selectCargo === 'function') {
+            selectCargo(createdId, true);
+          }
+        } catch(e) {
+          console.log('focus created cargo error', e.message);
+        }
+      }, 900);
     } else {
       alert('Ошибка создания груза: ' + (data.error || 'unknown'));
     }
