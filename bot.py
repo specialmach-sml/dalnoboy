@@ -6535,10 +6535,10 @@ async def myresponses(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for r in rows:
         text = (
-            f"📨 Отклик #{r['id']}\n"
-            f"📦 Груз #{r['cargo_id']}\n"
-            f"🚩 {r['from_city']} → {r['to_city']}\n"
-            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or 'RUB'}\n"
+            f"📨 Отклик #{r['id']} · груз #{r['cargo_id']}\n\n"
+            f"🚩 Маршрут:\n"
+            f"{r['from_city']} → {r['to_city']}\n\n"
+            f"💰 Цена: {format_price(r['price_amount'])} {r['price_currency'] or 'RUB'}\n"
             f"📊 Отклик: {names.get(r['response_status'], human_status(r['response_status']))}\n"
             f"📦 Груз: {human_status(r['cargo_status'])}"
         )
