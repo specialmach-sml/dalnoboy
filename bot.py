@@ -5897,7 +5897,18 @@ async def find_cargo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"📭 Грузы по запросу «{query}» не найдены")
         return
 
+    def short_place(value):
+        if not value:
+            return "-"
+        value = str(value).strip()
+        if "," in value:
+            value = value.split(",", 1)[0].strip()
+        return value or "-"
+
     for r in rows:
+        from_short = short_place(r["from_city"])
+        to_short = short_place(r["to_city"])
+
         text = (
             f"🔎 Найден груз #{r['id']}\n"
             f"🚩 {r['from_city']} → {r['to_city']}\n"
@@ -6537,7 +6548,7 @@ async def myresponses(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text = (
             f"📨 Отклик #{r['id']} · груз #{r['cargo_id']}\n\n"
             f"🚩 Маршрут:\n"
-            f"{r['from_city']} → {r['to_city']}\n\n"
+            f"{from_short} → {to_short}\n\n"
             f"💰 Цена: {format_price(r['price_amount'])} {r['price_currency'] or 'RUB'}\n"
             f"📊 Отклик: {names.get(r['response_status'], human_status(r['response_status']))}\n"
             f"📦 Груз: {human_status(r['cargo_status'])}"
@@ -6883,11 +6894,22 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
+    def short_place(value):
+        if not value:
+            return "-"
+        value = str(value).strip()
+        if "," in value:
+            value = value.split(",", 1)[0].strip()
+        return value or "-"
+
     for r in rows:
+        from_short = short_place(r["from_city"])
+        to_short = short_place(r["to_city"])
+
         text = (
             f"🤝 Сделка #{r['id']} · груз #{r['cargo_id']}\n\n"
             f"🚩 Маршрут:\n"
-            f"{r['from_city']} → {r['to_city']}\n\n"
+            f"{from_short} → {to_short}\n\n"
             f"📊 Статус сделки: {human_status(r['status'])}\n"
             f"💰 Цена: {format_price(r['price_amount'])} {r['price_currency'] or 'RUB'}\n"
             f"📏 Расстояние: {r['distance_km'] or '-'} км\n"
