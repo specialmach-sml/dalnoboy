@@ -6885,19 +6885,17 @@ async def deals_list(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     for r in rows:
         text = (
-            f"🤝 Сделка #{r['id']}\n\n"
-            f"📦 Груз #{r['cargo_id']}\n"
-            f"🚩 {r['from_city']} → {r['to_city']}\n"
-            f"⚖️ {r['weight_kg'] or 0} кг\n"
-            f"📦 {r['volume_m3'] or 0} м³\n"
-            f"🔢 {r['places_count'] or 0} мест\n"
-            f"💰 {format_price(r['price_amount'])} {r['price_currency'] or ''}\n"
-            f"📏 {r['distance_km'] or '-'} км\n"
-            f"💵 {r['rate_per_km'] or '-'} ₽/км\n\n"
-            f"🚚 Машина #{r['truck_id']}: {r['current_city']}, {r['body_type']}\n"
-            f"💬 Сообщений: {r['messages_count']}\n"
+            f"🤝 Сделка #{r['id']} · груз #{r['cargo_id']}\n\n"
+            f"🚩 Маршрут:\n"
+            f"{r['from_city']} → {r['to_city']}\n\n"
+            f"📊 Статус сделки: {human_status(r['status'])}\n"
+            f"💰 Цена: {format_price(r['price_amount'])} {r['price_currency'] or 'RUB'}\n"
+            f"📏 Расстояние: {r['distance_km'] or '-'} км\n"
+            f"💵 Ставка: {r['rate_per_km'] or '-'} ₽/км\n\n"
+            f"📦 Груз: {r['weight_kg'] or 0} кг · {r['volume_m3'] or 0} м³ · {r['places_count'] or 0} мест\n"
+            f"🚚 Машина #{r['truck_id']}: {r['current_city'] or '-'} · {r['body_type'] or '-'}\n"
+            f"💬 Сообщений в чате: {r['messages_count']}\n"
             + ("🚩 Жалоба отправлена\n" if r["dispute"] else "")
-            + f"📊 Статус: {human_status(r['status'])}"
         )
 
         is_driver = user_id == r["driver_id"]
