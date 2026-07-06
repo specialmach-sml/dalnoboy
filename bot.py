@@ -3366,26 +3366,26 @@ async def cargo_responses(update: Update, context: ContextTypes.DEFAULT_TYPE):
         truck = f"🚚 Машина #{r['truck_id']}" if r["truck_id"] else "🚚 Машина не указана"
 
         text = (
-            f"📨 Отклик #{r['id']}\n"
-            f"{names.get(r['status'], r['status'])}\n"
-            f"👤 {driver} ({username})\n"
+            f"📨 Отклик #{r['id']}\n\n"
+            f"👤 Перевозчик: {driver}\n"
+            f"📊 Статус отклика: {names.get(r['status'], r['status'])}\n"
             f"{truck}\n"
         )
 
         details = []
         if r["current_city"]:
-            details.append(f"📍 {r['current_city']}")
+            details.append(f"📍 Город: {r['current_city']}")
         if r["body_type"]:
-            details.append(f"Кузов: {r['body_type']}")
+            details.append(f"🚛 Кузов: {r['body_type']}")
         if r["capacity_tons"]:
-            details.append(f"{r['capacity_tons']} т")
+            details.append(f"⚖️ {r['capacity_tons']} т")
         if r["volume_m3"]:
-            details.append(f"{r['volume_m3']} м³")
+            details.append(f"📦 {r['volume_m3']} м³")
         if details:
-            text += " · ".join(details) + "\n"
+            text += "\n" + "\n".join(details) + "\n"
 
         if r["deal_id"]:
-            text += f"🤝 Сделка #{r['deal_id']} · {human_status(r['deal_status'])}\n"
+            text += f"\n🤝 Сделка #{r['deal_id']} · {human_status(r['deal_status'])}\n"
 
         kb = None
         if r["status"] == "pending":
