@@ -1052,11 +1052,21 @@ app.post("/api/app/response-action", async (req, res) => {
     }
 
     if (action === "reject") {
-      await client.query(`
+      const rejectRes = await client.query(`
         UPDATE responses
         SET status = 'rejected'
         WHERE id = $1
+          AND status = 'pending'
+        RETURNING id
       `, [responseId]);
+
+      if (!rejectRes.rows.length) {
+        await client.query("ROLLBACK");
+        return res.status(409).json({
+          success: false,
+          error: "response_not_pending"
+        });
+      }
 
       await client.query(`
         INSERT INTO audit_log (user_id, cargo_id, action, payload)
