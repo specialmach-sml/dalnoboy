@@ -1896,7 +1896,7 @@ app.get("/api/cargo/open", async (req, res) => {
 app.get("/api/nearby", async (req, res) => {
   try {
     const telegramId = req.query.telegram_id;
-    const radius = Number(req.query.radius || 50);
+    const requestedRadius = Number(req.query.radius || 50);
     const profitabilityFilter = req.query.profitability || null;
 
     if (!telegramId) {
@@ -1908,7 +1908,12 @@ app.get("/api/nearby", async (req, res) => {
 
     const truckResult = await pool.query(
       `
-      SELECT t.latitude, t.longitude, t.min_rate_per_km
+      SELECT
+        t.latitude,
+        t.longitude,
+        t.min_rate_per_km,
+        t.search_radius_km,
+        t.radius_km
       FROM trucks t
       JOIN users u ON u.id = t.driver_id
       WHERE u.telegram_id=$1
@@ -1926,6 +1931,9 @@ app.get("/api/nearby", async (req, res) => {
     }
 
     const truck = truckResult.rows[0];
+    const dbRadius = Number(truck.search_radius_km || truck.radius_km || 50);
+    const rawRadius = req.query.radius !== undefined ? requestedRadius : dbRadius;
+    const radius = Math.max(1, Math.min(Number(rawRadius || 50), 1000));
 
     const cargoResult = await pool.query(
       `

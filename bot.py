@@ -2816,7 +2816,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{cargo_id}")],
                     [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{cargo_id}")],
                     [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{cargo_id}")],
-                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru/map.html?v=244"))]
+                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru/map.html?v=246"))]
                 ])
             )
             return
@@ -10099,7 +10099,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [
                 InlineKeyboardButton(
                     "🗺 Открыть карту",
-                    web_app=WebAppInfo(url="https://dalnoboybros.ru/map.html?v=244")
+                    web_app=WebAppInfo(url="https://dalnoboybros.ru/map.html?v=246")
                 )
             ]
         ])
@@ -11650,6 +11650,7 @@ def main():
     app.add_handler(MessageHandler(filters.Regex("^⏭ Пропустить гео$"), skip_cargo_geo))
     app.add_handler(CommandHandler("skipgeo", skip_cargo_geo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, dispute_reason_text), group=-4)
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, rate_text_handler), group=-6)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, review_comment_text), group=-5)
     app.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, deal_document_message), group=-1)
     app.add_handler(MessageHandler(filters.PHOTO, truck_photo_message))

@@ -572,11 +572,18 @@ window.io=function(){return{on:function(){},emit:function(){},disconnect:functio
 
     <div class="toolbar">
       <button onclick="showMyLocation()" class="btn btn-blue">📍 Я здесь</button>
-      <select id="radiusSelect" class="input">
-        <option value="50">50 км</option>
-        <option value="150" selected>150 км</option>
-        <option value="500">500 км</option>
-      </select>
+      <input
+        id="radiusSelect"
+        class="input"
+        type="number"
+        min="1"
+        max="1000"
+        step="1"
+        value="150"
+        placeholder="км"
+        onchange="if (lastCargoQuery === 'nearby') loadPersonalNearby()"
+        onkeydown="if(event.key==='Enter'){ event.preventDefault(); loadPersonalNearby(); }"
+      >
       <input id="telegramIdInput" class="input" placeholder="TG ID" style="width:82px;display:none">
     </div>
 
@@ -799,7 +806,15 @@ async function loadMyTruckInfo() {
   try {
     const res = await fetch('/api/me/truck?telegram_id=' + encodeURIComponent(tgId));
     const data = await res.json();
-    if (data.success && data.truck) myMinRate = Number(data.truck.min_rate_per_km || 0);
+    if (data.success && data.truck) {
+      myMinRate = Number(data.truck.min_rate_per_km || 0);
+
+      const radiusSelect = document.getElementById('radiusSelect');
+      const truckRadius = Number(data.truck.search_radius_km || data.truck.radius_km || 0);
+      if (radiusSelect && truckRadius > 0) {
+        radiusSelect.value = String(truckRadius);
+      }
+    }
   } catch(e) {
     console.log('my truck info error', e.message);
   }
@@ -1449,7 +1464,11 @@ function setupSocket() {
 }
 
 loadMyTruckInfo().then(() => {
-  loadCargo('');
+  if (getTelegramUserId()) {
+    loadPersonalNearby();
+  } else {
+    loadCargo('');
+  }
   loadTrucks();
   setupSocket();
 });
