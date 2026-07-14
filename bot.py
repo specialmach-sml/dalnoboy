@@ -6705,6 +6705,13 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 response["truck_id"]
             )
 
+        await DB.execute("""
+            UPDATE cargo
+            SET status='booked'
+            WHERE id=$1
+              AND status='open'
+        """, response["cargo_id"])
+
         deal_id = await DB.fetchval("""
             SELECT id
             FROM deals

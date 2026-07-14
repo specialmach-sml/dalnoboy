@@ -94,6 +94,14 @@ function requireTelegramWebApp(req, res, next) {
   }
 
   const signedId = verified.user && verified.user.id ? String(verified.user.id) : "";
+
+  if (!signedId) {
+    return res.status(403).json({
+      success: false,
+      error: "signed_telegram_user_required"
+    });
+  }
+
   const claimedId = String(
     (req.query && req.query.telegram_id) ||
     (req.body && req.body.telegram_id) ||
@@ -123,7 +131,8 @@ const protectedMapApiPaths = new Set([
 
 app.use((req, res, next) => {
   if (req.method === "OPTIONS") return next();
-  if (!protectedMapApiPaths.has(req.path)) return next();
+  const normalizedPath = req.path.replace(/\/+$/, "") || "/";
+  if (!protectedMapApiPaths.has(normalizedPath)) return next();
   return requireTelegramWebApp(req, res, next);
 });
 // === END TELEGRAM_MAP_API_AUTH_V1 ===
@@ -1115,6 +1124,13 @@ app.post("/api/app/response-action", async (req, res) => {
     }
 
     await client.query(`
+      UPDATE cargo
+      SET status = 'booked'
+      WHERE id = $1
+        AND status = 'open'
+    `, [row.cargo_id]);
+
+    await client.query(`
       INSERT INTO audit_log (user_id, deal_id, cargo_id, action, payload)
       VALUES ($1, $2, $3, 'response_accepted', $4::jsonb)
     `, [
@@ -1836,6 +1852,20 @@ app.get("/api/cargo/open", async (req, res) => {
       WHERE status='open'
         AND load_latitude IS NOT NULL
         AND load_longitude IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM deals d
+          WHERE d.cargo_id = cargo.id
+            AND d.status IN (
+              'active',
+              'to_pickup',
+              'loading',
+              'loaded',
+              'in_progress',
+              'breakdown',
+              'resume_movement'
+            )
+        )
     `;
 
     if (minRate > 0) {
@@ -1913,8 +1943,7 @@ app.get("/api/nearby", async (req, res) => {
         t.latitude,
         t.longitude,
         t.min_rate_per_km,
-        t.search_radius_km,
-        t.radius_km
+        t.search_radius_km
       FROM trucks t
       JOIN users u ON u.id = t.driver_id
       WHERE u.telegram_id=$1
@@ -1932,7 +1961,7 @@ app.get("/api/nearby", async (req, res) => {
     }
 
     const truck = truckResult.rows[0];
-    const dbRadius = Number(truck.search_radius_km || truck.radius_km || 50);
+    const dbRadius = Number(truck.search_radius_km || 50);
     const rawRadius = req.query.radius !== undefined ? requestedRadius : dbRadius;
     const radius = Math.max(1, Math.min(Number(rawRadius || 50), 1000));
 
@@ -1955,6 +1984,20 @@ app.get("/api/nearby", async (req, res) => {
       WHERE status='open'
         AND load_latitude IS NOT NULL
         AND load_longitude IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM deals d
+          WHERE d.cargo_id = cargo.id
+            AND d.status IN (
+              'active',
+              'to_pickup',
+              'loading',
+              'loaded',
+              'in_progress',
+              'breakdown',
+              'resume_movement'
+            )
+        )
       ORDER BY id DESC
       LIMIT 100
       `
@@ -2071,7 +2114,15 @@ app.get("/api/route-addons", async (req, res) => {
       JOIN trucks t ON t.id = d.truck_id
       JOIN users u ON u.id = t.driver_id
       WHERE u.telegram_id = $1
-        AND d.status NOT IN ('closed','cancelled','done')
+        AND d.status IN (
+          'active',
+          'to_pickup',
+          'loading',
+          'loaded',
+          'in_progress',
+          'breakdown',
+          'resume_movement'
+        )
         AND c.load_latitude IS NOT NULL
         AND c.load_longitude IS NOT NULL
         AND c.unload_latitude IS NOT NULL
@@ -2116,6 +2167,20 @@ app.get("/api/route-addons", async (req, res) => {
         AND COALESCE(cargo_type, 'full') = 'partial'
         AND load_latitude IS NOT NULL
         AND load_longitude IS NOT NULL
+        AND NOT EXISTS (
+          SELECT 1
+          FROM deals d
+          WHERE d.cargo_id = cargo.id
+            AND d.status IN (
+              'active',
+              'to_pickup',
+              'loading',
+              'loaded',
+              'in_progress',
+              'breakdown',
+              'resume_movement'
+            )
+        )
       ORDER BY id DESC
       LIMIT 300
     `, [route.main_cargo_id]);
