@@ -131,7 +131,7 @@ const protectedMapApiPaths = new Set([
 
 app.use((req, res, next) => {
   if (req.method === "OPTIONS") return next();
-  const normalizedPath = req.path.replace(/\/+$/, "") || "/";
+  const normalizedPath = (req.path.replace(/\/+$/, "") || "/").toLowerCase();
   if (!protectedMapApiPaths.has(normalizedPath)) return next();
   return requireTelegramWebApp(req, res, next);
 });
