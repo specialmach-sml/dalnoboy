@@ -3356,70 +3356,11 @@ app.get("/api/deal/:id", async (req, res) => {
 });
 
 app.post("/api/deal/:id/status", async (req, res) => {
-  try {
-    const dealId = Number(req.params.id);
-    const { status, user_id } = req.body;
-
-    if (!status) {
-      return res.status(400).json({ success:false, error:"status_required" });
-    }
-
-    const oldDeal = await pool.query(`
-      SELECT status
-      FROM deals
-      WHERE id=$1
-      LIMIT 1
-    `, [dealId]);
-
-    if (!oldDeal.rows.length) {
-      return res.status(404).json({ success:false, error:"deal_not_found" });
-    }
-
-    const oldStatus = oldDeal.rows[0].status;
-
-    await pool.query(`
-      UPDATE deals
-      SET status=$1, updated_at=now()
-      WHERE id=$2
-    `, [status, dealId]);
-
-    await pool.query(`
-      INSERT INTO deal_status_history(deal_id, status, created_by)
-      VALUES($1,$2,$3)
-    `, [dealId, status, user_id || null]);
-
-    await pool.query(`
-      INSERT INTO deal_audit_log(
-        deal_id,
-        user_id,
-        action,
-        old_value,
-        new_value,
-        meta
-      )
-      VALUES($1,$2,$3,$4,$5,$6)
-    `, [
-      dealId,
-      user_id || null,
-      "deal_status_changed",
-      oldStatus,
-      status,
-      JSON.stringify({ source: "dispatcher_web" })
-    ]);
-
-    io.emit("deal_status_updated", {
-      deal_id: dealId,
-      status
-    });
-
-    res.json({ success:true });
-
-  } catch(e) {
-    console.error(e);
-    res.status(500).json({ success:false, error:e.message });
-  }
+  return res.status(403).json({
+    success: false,
+    error: "deal_status_endpoint_disabled"
+  });
 });
-
 
 
 app.post("/api/disputes", async (req, res) => {
