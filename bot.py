@@ -44,7 +44,7 @@ from telegram.ext import (
     ApplicationHandlerStop
 )
 
-from config import TOKEN, DB_DSN
+from config import TOKEN, DB_DSN, INTERNAL_API_SECRET
 
 DB = None
 BOT_VERSION = datetime.now().strftime("%Y.%m.%d.%H%M")
@@ -6635,6 +6635,7 @@ async def emit_response_status(response_id, status, cargo_id=None, truck_id=None
                     "truck_id": truck_id,
                     "deal_id": deal_id
                 },
+                headers={"X-Internal-Api-Secret": INTERNAL_API_SECRET},
                 timeout=5
             )
     except Exception as e:
@@ -7812,6 +7813,7 @@ async def emit_deal_status(deal_id, status, status_text=None, cargo_id=None):
                     "status_text": status_text or status,
                     "cargo_id": cargo_id
                 },
+                headers={"X-Internal-Api-Secret": INTERNAL_API_SECRET},
                 timeout=5
             )
     except Exception as e:

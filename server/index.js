@@ -1,6 +1,7 @@
 require("dotenv").config({ path: "../.env" });
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
+const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
 
 const express = require("express");
 const http = require("http");
@@ -28,6 +29,21 @@ const io = new Server(server, {
 });
 app.use(cors());
 app.use(express.json());
+
+function requireInternalApiSecret(req, res) {
+  const token = String(req.headers["x-internal-api-secret"] || "");
+
+  if (!INTERNAL_API_SECRET || token !== INTERNAL_API_SECRET) {
+    res.status(403).json({
+      success: false,
+      error: "internal_api_auth_required"
+    });
+    return false;
+  }
+
+  return true;
+}
+
 
 // === TELEGRAM_MAP_API_AUTH_V1 ===
 function verifyTelegramInitData(initData) {
@@ -2621,6 +2637,7 @@ app.post("/api/cargo/offer", async (req, res) => {
 
 
 app.post("/api/realtime/response-status", async (req, res) => {
+  if (!requireInternalApiSecret(req, res)) return;
   try {
     const { response_id, status, cargo_id, truck_id, deal_id } = req.body;
 
@@ -2647,6 +2664,7 @@ app.post("/api/realtime/response-status", async (req, res) => {
 
 
 app.post("/api/realtime/deal-status", async (req, res) => {
+  if (!requireInternalApiSecret(req, res)) return;
   try {
     const { deal_id, cargo_id, status, status_text } = req.body;
 
