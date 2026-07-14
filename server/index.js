@@ -3136,36 +3136,10 @@ app.get("/api/dispatcher/clients", async (req, res) => {
 
 
 app.post("/api/dispatcher/client/:id/note", async (req, res) => {
-  try {
-    const id = Number(req.params.id);
-    const { note } = req.body;
-
-    const row = await pool.query(`
-      UPDATE dispatcher_clients
-      SET note=$1
-      WHERE id=$2
-      RETURNING id, note
-    `, [note || null, id]);
-
-    if (!row.rows.length) {
-      return res.status(404).json({
-        success:false,
-        error:"client_not_found"
-      });
-    }
-
-    res.json({
-      success:true,
-      client:row.rows[0]
-    });
-
-  } catch(e) {
-    console.error(e);
-    res.status(500).json({
-      success:false,
-      error:e.message
-    });
-  }
+  return res.status(403).json({
+    success: false,
+    error: "public_dispatcher_note_endpoint_disabled"
+  });
 });
 
 
