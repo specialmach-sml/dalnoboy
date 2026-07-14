@@ -1858,6 +1858,7 @@ app.get("/api/cargo/open", async (req, res) => {
           WHERE d.cargo_id = cargo.id
             AND d.status IN (
               'active',
+              'driver_assigned',
               'to_pickup',
               'loading',
               'loaded',
@@ -1990,6 +1991,7 @@ app.get("/api/nearby", async (req, res) => {
           WHERE d.cargo_id = cargo.id
             AND d.status IN (
               'active',
+              'driver_assigned',
               'to_pickup',
               'loading',
               'loaded',
@@ -2116,6 +2118,7 @@ app.get("/api/route-addons", async (req, res) => {
       WHERE u.telegram_id = $1
         AND d.status IN (
           'active',
+          'driver_assigned',
           'to_pickup',
           'loading',
           'loaded',
@@ -2173,6 +2176,7 @@ app.get("/api/route-addons", async (req, res) => {
           WHERE d.cargo_id = cargo.id
             AND d.status IN (
               'active',
+              'driver_assigned',
               'to_pickup',
               'loading',
               'loaded',
