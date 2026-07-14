@@ -6679,90 +6679,212 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "accept":
-        await DB.execute("""
-            UPDATE responses
-            SET status='accepted'
-            WHERE id=$1
-        """, response_id)
+        response = None
+        deal_id = None
+        already_accepted = False
 
-        existing_deal = await DB.fetchrow("""
-            SELECT id FROM deals
-            WHERE response_id=$1
-        """, response_id)
+        try:
+            async with DB.acquire() as conn:
+                async with conn.transaction():
+                    actor = await conn.fetchrow("""
+                        SELECT id
+                        FROM users
+                        WHERE telegram_id=$1
+                        LIMIT 1
+                    """, q.from_user.id)
 
-        if not existing_deal:
-            await DB.execute("""
-                INSERT INTO deals (
-                    response_id,
-                    cargo_id,
-                    truck_id,
-                    status
-                )
-                VALUES ($1,$2,$3,'active')
-            """,
-                response["id"],
-                response["cargo_id"],
-                response["truck_id"]
-            )
+                    if not actor:
+                        raise RuntimeError("user_not_found")
 
-        await DB.execute("""
-            UPDATE cargo
-            SET status='booked'
-            WHERE id=$1
-              AND status='open'
-        """, response["cargo_id"])
+                    response = await conn.fetchrow("""
+                        SELECT
+                            r.id,
+                            r.status,
+                            r.cargo_id,
+                            r.truck_id,
+                            u.telegram_id,
+                            c.created_by AS cargo_owner_id,
+                            c.status AS cargo_status,
+                            c.from_city,
+                            c.to_city,
+                            c.price_amount,
+                            c.price_currency,
+                            c.weight_kg,
+                            c.volume_m3,
+                            c.places_count,
+                            c.cargo_type,
+                            c.distance_km,
+                            c.rate_per_km
+                        FROM responses r
+                        JOIN users u ON u.id = r.driver_id
+                        JOIN cargo c ON c.id = r.cargo_id
+                        WHERE r.id=$1
+                        FOR UPDATE OF r, c
+                    """, response_id)
 
-        deal_id = await DB.fetchval("""
-            SELECT id
-            FROM deals
-            WHERE response_id=$1
-            LIMIT 1
-        """, response_id)
+                    if not response:
+                        raise RuntimeError("response_not_found")
 
-        actor = await DB.fetchrow("""
-            SELECT id
-            FROM users
-            WHERE telegram_id=$1
-            LIMIT 1
-        """, q.from_user.id)
+                    if str(response["cargo_owner_id"]) != str(actor["id"]):
+                        raise RuntimeError("not_cargo_owner")
 
+                    if response["status"] == "accepted":
+                        existing = await conn.fetchrow("""
+                            SELECT id
+                            FROM deals
+                            WHERE response_id=$1
+                            LIMIT 1
+                        """, response_id)
 
-        await audit(
-            actor["id"] if actor else None,
-            "response_accepted",
-            deal_id=deal_id,
-            cargo_id=response["cargo_id"],
-            payload={
-                "response_id": response_id,
-                "truck_id": response["truck_id"]
+                        if existing:
+                            deal_id = existing["id"]
+                            already_accepted = True
+                        else:
+                            raise RuntimeError("response_not_pending")
+                    else:
+                        if response["status"] != "pending":
+                            raise RuntimeError("response_not_pending")
+
+                        if response["cargo_status"] != "open":
+                            raise RuntimeError("cargo_already_booked")
+
+                        active_deal = await conn.fetchrow("""
+                            SELECT id
+                            FROM deals
+                            WHERE cargo_id=$1
+                              AND status IN (
+                                'active',
+                                'driver_assigned',
+                                'to_pickup',
+                                'loading',
+                                'loaded',
+                                'in_progress',
+                                'breakdown',
+                                'resume_movement'
+                              )
+                            LIMIT 1
+                        """, response["cargo_id"])
+
+                        if active_deal:
+                            raise RuntimeError("cargo_already_has_active_deal")
+
+                        booked = await conn.fetchrow("""
+                            UPDATE cargo
+                            SET status='booked'
+                            WHERE id=$1
+                              AND status='open'
+                            RETURNING id
+                        """, response["cargo_id"])
+
+                        if not booked:
+                            raise RuntimeError("cargo_already_booked")
+
+                        accepted = await conn.fetchrow("""
+                            UPDATE responses
+                            SET status='accepted'
+                            WHERE id=$1
+                              AND status='pending'
+                            RETURNING id
+                        """, response_id)
+
+                        if not accepted:
+                            raise RuntimeError("response_not_pending")
+
+                        existing_deal = await conn.fetchrow("""
+                            SELECT id
+                            FROM deals
+                            WHERE response_id=$1
+                            LIMIT 1
+                        """, response_id)
+
+                        created_deal = False
+
+                        if existing_deal:
+                            deal_id = existing_deal["id"]
+                        else:
+                            deal_id = await conn.fetchval("""
+                                INSERT INTO deals (
+                                    response_id,
+                                    cargo_id,
+                                    truck_id,
+                                    status
+                                )
+                                VALUES ($1,$2,$3,'active')
+                                RETURNING id
+                            """,
+                                response["id"],
+                                response["cargo_id"],
+                                response["truck_id"]
+                            )
+                            created_deal = True
+
+                        await conn.execute("""
+                            UPDATE responses
+                            SET status='rejected'
+                            WHERE cargo_id=$1
+                              AND id<>$2
+                              AND status='pending'
+                        """, response["cargo_id"], response_id)
+
+                        await conn.execute("""
+                            INSERT INTO audit_log (user_id, deal_id, cargo_id, action, payload)
+                            VALUES ($1, $2, $3, 'response_accepted', $4::jsonb)
+                        """,
+                            actor["id"],
+                            deal_id,
+                            response["cargo_id"],
+                            json.dumps({
+                                "response_id": response_id,
+                                "truck_id": response["truck_id"],
+                                "source": "telegram_bot"
+                            })
+                        )
+
+                        if created_deal:
+                            await conn.execute("""
+                                INSERT INTO audit_log (user_id, deal_id, cargo_id, action, payload)
+                                VALUES ($1, $2, $3, 'deal_created', $4::jsonb)
+                            """,
+                                actor["id"],
+                                deal_id,
+                                response["cargo_id"],
+                                json.dumps({
+                                    "response_id": response_id,
+                                    "truck_id": response["truck_id"],
+                                    "source": "telegram_bot"
+                                })
+                            )
+
+                        history_exists = await conn.fetchval("""
+                            SELECT COUNT(*)
+                            FROM deal_status_history
+                            WHERE deal_id=$1
+                        """, deal_id)
+
+                        if history_exists == 0:
+                            await conn.execute("""
+                                INSERT INTO deal_status_history (deal_id, status, created_by)
+                                VALUES
+                                    ($1, 'active', $2),
+                                    ($1, 'driver_assigned', $2)
+                            """, deal_id, actor["id"])
+
+        except RuntimeError as e:
+            code = str(e)
+            messages = {
+                "user_not_found": "❌ Пользователь не найден",
+                "response_not_found": "❌ Отклик не найден",
+                "not_cargo_owner": "⛔ Можно принять только отклик по своему грузу",
+                "response_not_pending": "⛔ Этот отклик уже обработан",
+                "cargo_already_booked": "⛔ Груз уже забронирован",
+                "cargo_already_has_active_deal": "⛔ По этому грузу уже есть активная сделка"
             }
-        )
+            await q.message.reply_text(messages.get(code, "❌ Не удалось принять отклик"))
+            return
 
-        if not existing_deal:
-            await audit(
-                actor["id"] if actor else None,
-                "deal_created",
-                deal_id=deal_id,
-                cargo_id=response["cargo_id"],
-                payload={
-                    "response_id": response_id,
-                    "truck_id": response["truck_id"]
-                }
-            )
-
-        history_exists = await DB.fetchval("""
-            SELECT COUNT(*)
-            FROM deal_status_history
-            WHERE deal_id=$1
-        """, deal_id)
-
-        if history_exists == 0:
-            await DB.execute("""
-                INSERT INTO deal_status_history (deal_id, status, created_by)
-                VALUES
-                    ($1, 'active', $2),
-                    ($1, 'driver_assigned', $2)
-            """, deal_id, actor["id"] if actor else None)
+        if already_accepted:
+            await q.message.reply_text(f"ℹ️ Отклик #{response_id} уже принят, сделка #{deal_id}")
+            return
 
         try:
             await context.bot.send_message(
