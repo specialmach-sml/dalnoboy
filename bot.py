@@ -6940,11 +6940,74 @@ async def response_action(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if action == "reject":
-        await DB.execute("""
-            UPDATE responses
-            SET status='rejected'
-            WHERE id=$1
-        """, response_id)
+        try:
+            async with DB.acquire() as conn:
+                async with conn.transaction():
+                    actor = await conn.fetchrow("""
+                        SELECT id
+                        FROM users
+                        WHERE telegram_id=$1
+                        LIMIT 1
+                    """, q.from_user.id)
+
+                    if not actor:
+                        raise RuntimeError("user_not_found")
+
+                    response = await conn.fetchrow("""
+                        SELECT
+                            r.id,
+                            r.status,
+                            r.cargo_id,
+                            r.truck_id,
+                            c.created_by AS cargo_owner_id
+                        FROM responses r
+                        JOIN cargo c ON c.id = r.cargo_id
+                        WHERE r.id=$1
+                        FOR UPDATE OF r, c
+                    """, response_id)
+
+                    if not response:
+                        raise RuntimeError("response_not_found")
+
+                    if str(response["cargo_owner_id"]) != str(actor["id"]):
+                        raise RuntimeError("not_cargo_owner")
+
+                    if response["status"] != "pending":
+                        raise RuntimeError("response_not_pending")
+
+                    rejected = await conn.fetchrow("""
+                        UPDATE responses
+                        SET status='rejected'
+                        WHERE id=$1
+                          AND status='pending'
+                        RETURNING id
+                    """, response_id)
+
+                    if not rejected:
+                        raise RuntimeError("response_not_pending")
+
+                    await conn.execute("""
+                        INSERT INTO audit_log (user_id, cargo_id, action, payload)
+                        VALUES ($1, $2, 'response_rejected', $3::jsonb)
+                    """,
+                        actor["id"],
+                        response["cargo_id"],
+                        json.dumps({
+                            "response_id": response_id,
+                            "source": "telegram_bot"
+                        })
+                    )
+
+        except RuntimeError as e:
+            code = str(e)
+            messages = {
+                "user_not_found": "❌ Пользователь не найден",
+                "response_not_found": "❌ Отклик не найден",
+                "not_cargo_owner": "⛔ Можно отклонить только отклик по своему грузу",
+                "response_not_pending": "⛔ Этот отклик уже обработан"
+            }
+            await q.message.reply_text(messages.get(code, "❌ Не удалось отклонить отклик"))
+            return
 
         await emit_response_status(
             response_id,
