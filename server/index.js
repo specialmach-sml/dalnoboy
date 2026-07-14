@@ -1021,6 +1021,7 @@ app.post("/api/app/response-action", async (req, res) => {
         driver.telegram_id AS driver_telegram_id,
         driver.full_name AS driver_name,
         c.created_by AS cargo_owner_id,
+        c.status AS cargo_status,
         c.from_city,
         c.to_city,
         c.price_amount,
@@ -1098,11 +1099,74 @@ app.post("/api/app/response-action", async (req, res) => {
       return res.json({success:true,response_id:responseId,status:"rejected"});
     }
 
-    await client.query(`
+    if (row.status === "accepted" && row.deal_id) {
+      await client.query("COMMIT");
+      return res.json({
+        success: true,
+        response_id: responseId,
+        status: "accepted",
+        deal_id: row.deal_id,
+        already_accepted: true
+      });
+    }
+
+    if (row.status !== "pending") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({success:false,error:"response_not_pending"});
+    }
+
+    if (row.cargo_status !== "open") {
+      await client.query("ROLLBACK");
+      return res.status(409).json({success:false,error:"cargo_already_booked"});
+    }
+
+    const activeDealRes = await client.query(`
+      SELECT id
+      FROM deals
+      WHERE cargo_id = $1
+        AND status IN (
+          'active',
+          'driver_assigned',
+          'to_pickup',
+          'loading',
+          'loaded',
+          'in_progress',
+          'breakdown',
+          'resume_movement'
+        )
+      LIMIT 1
+    `, [row.cargo_id]);
+
+    if (activeDealRes.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({success:false,error:"cargo_already_has_active_deal"});
+    }
+
+    const bookedRes = await client.query(`
+      UPDATE cargo
+      SET status = 'booked'
+      WHERE id = $1
+        AND status = 'open'
+      RETURNING id
+    `, [row.cargo_id]);
+
+    if (!bookedRes.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({success:false,error:"cargo_already_booked"});
+    }
+
+    const acceptRes = await client.query(`
       UPDATE responses
       SET status = 'accepted'
       WHERE id = $1
+        AND status = 'pending'
+      RETURNING id
     `, [responseId]);
+
+    if (!acceptRes.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(409).json({success:false,error:"response_not_pending"});
+    }
 
     let dealId = row.deal_id;
     let createdDeal = false;
@@ -1124,11 +1188,12 @@ app.post("/api/app/response-action", async (req, res) => {
     }
 
     await client.query(`
-      UPDATE cargo
-      SET status = 'booked'
-      WHERE id = $1
-        AND status = 'open'
-    `, [row.cargo_id]);
+      UPDATE responses
+      SET status = 'rejected'
+      WHERE cargo_id = $1
+        AND id <> $2
+        AND status = 'pending'
+    `, [row.cargo_id, responseId]);
 
     await client.query(`
       INSERT INTO audit_log (user_id, deal_id, cargo_id, action, payload)
