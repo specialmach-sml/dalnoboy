@@ -115,6 +115,7 @@ const protectedMapApiPaths = new Set([
   "/api/cargo/open",
   "/api/trucks/active",
   "/api/nearby",
+  "/api/route-addons",
   "/api/truck/location",
   "/api/me/truck",
   "/api/cargo/create"
@@ -2018,6 +2019,140 @@ app.get("/api/nearby", async (req, res) => {
 
 
 
+
+
+// === ROUTE_ADDONS_HELPERS_V1 ===
+function projectRouteKm(baseLat, baseLon, lat, lon) {
+  const x = (Number(lon) - Number(baseLon)) * 111.320 * Math.cos(Number(baseLat) * Math.PI / 180);
+  const y = (Number(lat) - Number(baseLat)) * 110.574;
+  return { x, y };
+}
+
+function distancePointToRouteKm(pointLat, pointLon, startLat, startLon, endLat, endLon) {
+  const p = projectRouteKm(startLat, startLon, pointLat, pointLon);
+  const b = projectRouteKm(startLat, startLon, endLat, endLon);
+  const ab2 = b.x * b.x + b.y * b.y;
+  if (!ab2) return Math.sqrt(p.x * p.x + p.y * p.y);
+
+  let t = (p.x * b.x + p.y * b.y) / ab2;
+  t = Math.max(0, Math.min(1, t));
+
+  const dx = p.x - b.x * t;
+  const dy = p.y - b.y * t;
+  return Math.round(Math.sqrt(dx * dx + dy * dy) * 10) / 10;
+}
+// === END ROUTE_ADDONS_HELPERS_V1 ===
+
+
+// === ROUTE_ADDONS_API_V1 ===
+app.get("/api/route-addons", async (req, res) => {
+  try {
+    const telegramId = req.query.telegram_id;
+    const corridorKm = Math.max(1, Math.min(Number(req.query.corridor || 50), 300));
+
+    if (!telegramId) {
+      return res.status(400).json({ success: false, error: "telegram_id_required" });
+    }
+
+    const activeDeal = await pool.query(`
+      SELECT
+        d.id AS deal_id,
+        d.cargo_id AS main_cargo_id,
+        d.truck_id,
+        d.status AS deal_status,
+        c.from_city AS route_from_city,
+        c.to_city AS route_to_city,
+        c.load_latitude,
+        c.load_longitude,
+        c.unload_latitude,
+        c.unload_longitude
+      FROM deals d
+      JOIN cargo c ON c.id = d.cargo_id
+      JOIN trucks t ON t.id = d.truck_id
+      JOIN users u ON u.id = t.driver_id
+      WHERE u.telegram_id = $1
+        AND d.status NOT IN ('closed','cancelled','done')
+        AND c.load_latitude IS NOT NULL
+        AND c.load_longitude IS NOT NULL
+        AND c.unload_latitude IS NOT NULL
+        AND c.unload_longitude IS NOT NULL
+      ORDER BY d.id DESC
+      LIMIT 1
+    `, [telegramId]);
+
+    if (!activeDeal.rows.length) {
+      return res.json({
+        success: true,
+        no_active_route: true,
+        message: "active_route_not_found",
+        count: 0,
+        items: []
+      });
+    }
+
+    const route = activeDeal.rows[0];
+
+    const cargoResult = await pool.query(`
+      SELECT
+        id,
+        from_city,
+        to_city,
+        description,
+        price_amount,
+        price_currency,
+        distance_km,
+        rate_per_km,
+        weight_kg,
+        volume_m3,
+        places_count,
+        cargo_type,
+        load_latitude,
+        load_longitude,
+        unload_latitude,
+        unload_longitude
+      FROM cargo
+      WHERE status = 'open'
+        AND id <> $1
+        AND COALESCE(cargo_type, 'full') = 'partial'
+        AND load_latitude IS NOT NULL
+        AND load_longitude IS NOT NULL
+      ORDER BY id DESC
+      LIMIT 300
+    `, [route.main_cargo_id]);
+
+    const items = cargoResult.rows
+      .map((c) => ({
+        ...c,
+        route_distance_km: distancePointToRouteKm(
+          c.load_latitude,
+          c.load_longitude,
+          route.load_latitude,
+          route.load_longitude,
+          route.unload_latitude,
+          route.unload_longitude
+        ),
+        route_deal_id: route.deal_id,
+        main_cargo_id: route.main_cargo_id,
+        route_from_city: route.route_from_city,
+        route_to_city: route.route_to_city
+      }))
+      .filter((c) => Number(c.route_distance_km) <= corridorKm)
+      .sort((a, b) => Number(a.route_distance_km || 0) - Number(b.route_distance_km || 0));
+
+    return res.json({
+      success: true,
+      no_active_route: false,
+      corridor_km: corridorKm,
+      route,
+      count: items.length,
+      items
+    });
+  } catch (e) {
+    console.error("api route-addons error", e);
+    return res.status(500).json({ success: false, error: "server_error" });
+  }
+});
+// === END ROUTE_ADDONS_API_V1 ===
 
 app.post("/api/cargo/create", async (req, res) => {
   try {

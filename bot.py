@@ -2816,7 +2816,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     [InlineKeyboardButton("🚛 Откликнуться", callback_data=f"cargo_{cargo_id}")],
                     [InlineKeyboardButton("📤 Поделиться", callback_data=f"cargo_share_{cargo_id}")],
                     [InlineKeyboardButton("🔗 Получить ссылку", callback_data=f"cargo_link_{cargo_id}")],
-                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru/map.html?v=246"))]
+                    [InlineKeyboardButton("🗺 Карта", web_app=WebAppInfo(url="https://dalnoboybros.ru/map.html?v=247"))]
                 ])
             )
             return
@@ -10099,7 +10099,7 @@ async def reply_menu_handler(update: Update, context: ContextTypes.DEFAULT_TYPE)
             [
                 InlineKeyboardButton(
                     "🗺 Открыть карту",
-                    web_app=WebAppInfo(url="https://dalnoboybros.ru/map.html?v=246")
+                    web_app=WebAppInfo(url="https://dalnoboybros.ru/map.html?v=247")
                 )
             ]
         ])

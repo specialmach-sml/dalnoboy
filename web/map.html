@@ -581,8 +581,8 @@ window.io=function(){return{on:function(){},emit:function(){},disconnect:functio
         step="1"
         value="150"
         placeholder="км"
-        onchange="if (lastCargoQuery === 'nearby') loadPersonalNearby()"
-        onkeydown="if(event.key==='Enter'){ event.preventDefault(); loadPersonalNearby(); }"
+        onchange="refreshCargoCurrent()"
+        onkeydown="if(event.key==='Enter'){ event.preventDefault(); refreshCargoCurrent(); }"
       >
       <input id="telegramIdInput" class="input" placeholder="TG ID" style="width:82px;display:none">
     </div>
@@ -1348,12 +1348,53 @@ async function loadPersonalNearby() {
   }
 }
 
+async function loadRouteAddons() {
+  const tgId = getTelegramUserId();
+  if (!tgId) {
+    alert('Откройте карту через Telegram-бота');
+    return;
+  }
+
+  lastCargoQuery = 'route-addons';
+  const list = document.getElementById('cargoList');
+  list.innerHTML = 'Ищу догрузы по активному маршруту...';
+  clearCargoMarkers();
+
+  try {
+    const radiusInput = document.getElementById('radiusSelect');
+    const corridorKm = Number(radiusInput && radiusInput.value ? radiusInput.value : 50);
+    const url = '/api/route-addons?telegram_id=' + encodeURIComponent(tgId) + '&corridor=' + encodeURIComponent(corridorKm);
+
+    const res = await fetch(url);
+    const data = await res.json();
+
+    if (data.no_active_route) {
+      list.innerHTML = '<div class="cargo-card">🛣 Активного маршрута нет.<br><span class="muted">Догрузы появятся после принятия груза в сделку.</span></div>';
+      updateStats([]);
+      return;
+    }
+
+    const cargos = getCargoArray(data);
+    cargos.forEach(addCargoMarkerLive);
+    renderCargoList(cargos);
+    updateStats(cargos);
+
+    if (cargos.length && cargoMarkers.length) {
+      const group = L.featureGroup(cargoMarkers);
+      try { map.fitBounds(group.getBounds(), { padding: [45, 45], maxZoom: 10 }); } catch (e) {}
+    }
+  } catch (e) {
+    list.innerHTML = '<div class="cargo-card">Ошибка поиска догрузов: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
 function loadAvailableTrucks() {
-  loadCargo('?cargo_type=partial');
+  loadRouteAddons();
 }
 
 function refreshCargoCurrent() {
   if (lastCargoQuery === 'nearby') loadPersonalNearby();
+  else if (lastCargoQuery === 'route-addons') loadRouteAddons();
   else loadCargo(lastCargoQuery || '');
 }
 
