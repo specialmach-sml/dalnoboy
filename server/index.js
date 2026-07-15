@@ -2,6 +2,7 @@ require("dotenv").config({ path: "../.env" });
 
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || "";
+const DISPATCHER_API_SECRET = process.env.DISPATCHER_API_SECRET || "";
 
 const express = require("express");
 const http = require("http");
@@ -37,6 +38,21 @@ function requireInternalApiSecret(req, res) {
     res.status(403).json({
       success: false,
       error: "internal_api_auth_required"
+    });
+    return false;
+  }
+
+  return true;
+}
+
+
+function requireDispatcherApiSecret(req, res) {
+  const token = String(req.headers["x-dispatcher-api-secret"] || "");
+
+  if (!DISPATCHER_API_SECRET || token !== DISPATCHER_API_SECRET) {
+    res.status(403).json({
+      success: false,
+      error: "dispatcher_api_auth_required"
     });
     return false;
   }
@@ -2691,6 +2707,7 @@ app.post("/api/realtime/deal-status", async (req, res) => {
 
 
 app.get("/api/deals", async (req, res) => {
+  if (!requireDispatcherApiSecret(req, res)) return;
   try {
     const rows = await pool.query(`
       SELECT
@@ -2751,6 +2768,7 @@ app.get("/api/deals", async (req, res) => {
 
 
 app.get("/api/deal/:id", async (req, res) => {
+  if (!requireDispatcherApiSecret(req, res)) return;
   try {
     const dealId = Number(req.params.id);
 
@@ -2815,6 +2833,7 @@ app.post("/api/disputes", async (req, res) => {
 
 
 app.get("/api/disputes", async (req, res) => {
+  if (!requireDispatcherApiSecret(req, res)) return;
   try {
     const rows = await pool.query(`
       SELECT
@@ -2842,6 +2861,7 @@ app.get("/api/disputes", async (req, res) => {
 
 
 app.get("/api/deal/:id/audit", async (req, res) => {
+  if (!requireDispatcherApiSecret(req, res)) return;
   try {
     const dealId = Number(req.params.id);
 
@@ -2882,6 +2902,7 @@ app.get("/api/deal/:id/audit", async (req, res) => {
 
 
 app.get("/api/deal/:id/documents", async (req, res) => {
+  if (!requireDispatcherApiSecret(req, res)) return;
   try {
     const dealId = Number(req.params.id);
 
@@ -2920,6 +2941,7 @@ app.get("/api/deal/:id/documents", async (req, res) => {
 
 
 app.get("/api/dispatcher/clients", async (req, res) => {
+  if (!requireDispatcherApiSecret(req, res)) return;
   try {
 
     const rows = await pool.query(`
