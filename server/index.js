@@ -217,6 +217,180 @@ app.delete("/orders/:id", async (req, res) => {
 });
 
 
+app.post("/api/app/login", async (req, res) => {
+  const client = await pool.connect();
+
+  try {
+    const { code } = req.body || {};
+
+    if (!code || String(code).trim().length < 4) {
+      return res.status(400).json({
+        success: false,
+        error: "code required"
+      });
+    }
+
+    await client.query("BEGIN");
+
+    const codeResult = await client.query(
+      `
+      SELECT
+        c.id AS code_id,
+        c.user_id,
+        c.telegram_id,
+        c.expires_at,
+        c.used_at,
+        u.full_name,
+        u.role,
+        u.plan_type,
+        u.verified,
+        u.banned
+      FROM app_login_codes c
+      JOIN users u ON u.id = c.user_id
+      WHERE c.code = $1
+      LIMIT 1
+      `,
+      [String(code).trim()]
+    );
+
+    if (!codeResult.rows.length) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({
+        success: false,
+        error: "invalid code"
+      });
+    }
+
+    const row = codeResult.rows[0];
+
+    if (row.used_at) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({
+        success: false,
+        error: "code already used"
+      });
+    }
+
+    if (new Date(row.expires_at).getTime() < Date.now()) {
+      await client.query("ROLLBACK");
+      return res.status(401).json({
+        success: false,
+        error: "code expired"
+      });
+    }
+
+    if (row.banned) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        success: false,
+        error: "user banned"
+      });
+    }
+
+    const consentResult = await client.query(
+      `
+      SELECT COUNT(*)::int AS cnt
+      FROM user_consents
+      WHERE user_id = $1
+        AND revoked_at IS NULL
+        AND consent_type IN (
+          'user_agreement',
+          'privacy_policy',
+          'personal_data_consent',
+          'geo_consent'
+        )
+      `,
+      [row.user_id]
+    );
+
+    if (consentResult.rows[0].cnt < 4) {
+      await client.query("ROLLBACK");
+      return res.status(403).json({
+        success: false,
+        error: "legal consent required"
+      });
+    }
+
+    const token = crypto.randomBytes(32).toString("hex");
+    const tokenHash = crypto
+      .createHash("sha256")
+      .update(token)
+      .digest("hex");
+
+    await client.query(
+      `
+      INSERT INTO app_sessions (
+        user_id,
+        telegram_id,
+        token_hash,
+        user_agent,
+        ip_address,
+        expires_at
+      )
+      VALUES ($1, $2, $3, $4, $5, now() + interval '30 days')
+      `,
+      [
+        row.user_id,
+        row.telegram_id,
+        tokenHash,
+        req.headers["user-agent"] || null,
+        req.ip || null
+      ]
+    );
+
+    await client.query(
+      `
+      UPDATE app_login_codes
+      SET used_at = now()
+      WHERE id = $1
+      `,
+      [row.code_id]
+    );
+
+    await client.query(
+      `
+      INSERT INTO audit_log (user_id, action, payload)
+      VALUES ($1, 'app_login_success', $2::jsonb)
+      `,
+      [
+        row.user_id,
+        JSON.stringify({
+          source: "api",
+          user_agent: req.headers["user-agent"] || null
+        })
+      ]
+    );
+
+    await client.query("COMMIT");
+
+    return res.json({
+      success: true,
+      token,
+      user: {
+        id: row.user_id,
+        telegram_id: row.telegram_id,
+        full_name: row.full_name,
+        role: row.role,
+        plan_type: row.plan_type,
+        verified: row.verified
+      }
+    });
+  } catch (err) {
+    await client.query("ROLLBACK");
+    console.error("app login error", err);
+
+    return res.status(500).json({
+      success: false,
+      error: "server error"
+    });
+  } finally {
+    client.release();
+  }
+});
+
+
+
+
 app.get("/api/app/me", async (req, res) => {
   try {
     const auth = req.headers.authorization || "";
@@ -1626,6 +1800,64 @@ app.post("/api/location", async (req, res) => {
   });
 });
 
+
+function distanceKm(lat1, lon1, lat2, lon2) {
+  const r = 6371;
+  const toRad = (v) => Number(v) * Math.PI / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) *
+    Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) ** 2;
+
+  return Math.round(r * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a)));
+}
+
+
+
+
+
+app.get("/api/trucks/active", async (req, res) => {
+  try {
+    const rows = await pool.query(`
+      SELECT
+        t.id,
+        t.driver_id,
+
+
+        t.latitude,
+        t.longitude,
+        t.location_updated_at,
+        CASE
+          WHEN t.location_updated_at > now() - interval '30 minutes' THEN 'online'
+          WHEN t.location_updated_at > now() - interval '2 hours' THEN 'recent'
+          ELSE 'offline'
+        END AS online_status,
+        u.full_name,
+        u.telegram_username
+      FROM trucks t
+      LEFT JOIN users u ON u.id = t.driver_id
+      WHERE t.latitude IS NOT NULL
+        AND t.longitude IS NOT NULL
+        AND t.status='active'
+      ORDER BY t.location_updated_at DESC NULLS LAST
+      LIMIT 500
+    `);
+
+    res.json({
+      success: true,
+      count: rows.rows.length,
+      items: rows.rows
+    });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ success: false, error: "server_error" });
+  }
+});
 
 app.get("/api/cargo/open", async (req, res) => {
   try {
