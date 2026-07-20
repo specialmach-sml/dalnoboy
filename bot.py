@@ -2348,7 +2348,10 @@ async def matching(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get("http://localhost:5000/api/matching/open-cargo") as resp:
+            async with session.get(
+                "http://localhost:5000/api/matching/open-cargo",
+                headers={"X-Internal-Api-Secret": INTERNAL_API_SECRET}
+            ) as resp:
                 data = await resp.json()
 
         items = data.get("items", [])
@@ -9553,7 +9556,10 @@ async def automatches(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get("http://localhost:5000/api/matching/open-cargo") as resp:
+            async with session.get(
+                "http://localhost:5000/api/matching/open-cargo",
+                headers={"X-Internal-Api-Secret": INTERNAL_API_SECRET}
+            ) as resp:
                 data = await resp.json()
 
         items = data.get("items", [])
@@ -9608,7 +9614,10 @@ async def pushmatches(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get("http://localhost:5000/api/matching/open-cargo") as resp:
+            async with session.get(
+                "http://localhost:5000/api/matching/open-cargo",
+                headers={"X-Internal-Api-Secret": INTERNAL_API_SECRET}
+            ) as resp:
                 data = await resp.json()
 
         items = data.get("items", [])
@@ -10072,6 +10081,7 @@ async def location_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             async with aiohttp.ClientSession() as session:
                 async with session.get(
                     f"http://localhost:5000/api/cargo/{cargo_id}/available-trucks",
+                    headers={"X-Internal-Api-Secret": INTERNAL_API_SECRET},
                     timeout=8
                 ) as resp:
                     auto_data = await resp.json()

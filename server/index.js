@@ -2367,13 +2367,14 @@ app.post("/api/cargo/create", async (req, res) => {
 
 
 app.get("/api/trucks/available", async (req, res) => {
+  if (!requireInternalApiSecret(req, res)) return;
   try {
     const tons = Number(req.query.tons || 0);
     const volume = Number(req.query.volume || 0);
     const from = (req.query.from || "").trim();
     const to = (req.query.to || "").trim();
 
-    const params = [];
+    const params = [tons, volume];
     let where = `
       WHERE t.status='active'
         AND t.allow_partial_load = true
@@ -2383,98 +2384,11 @@ app.get("/api/trucks/available", async (req, res) => {
     `;
 
     if (tons > 0) {
-      params.push(tons);
-      where += ` AND COALESCE(t.available_tons, 0) >= $${params.length}`;
+      where += ` AND COALESCE(t.available_tons, 0) >= $1`;
     }
 
     if (volume > 0) {
-      params.push(volume);
-      where += ` AND COALESCE(t.available_volume_m3, 0) >= $${params.length}`;
-    }
-
-    if (from) {
-      params.push(`%${from}%`);
-      where += ` AND (t.route_from ILIKE $${params.length} OR t.current_city ILIKE $${params.length})`;
-    }
-
-    if (to) {
-      params.push(`%${to}%`);
-      where += ` AND t.route_to ILIKE $${params.length}`;
-    }
-
-    const rows = await pool.query(`
-      SELECT
-        t.id,
-        t.driver_id,
-        t.current_city,
-        t.body_type,
-        t.capacity_tons,
-        t.volume_m3,
-        t.available_tons,
-        t.available_volume_m3,
-        t.route_from,
-        t.route_to,
-        t.latitude,
-        t.longitude,
-        t.location_updated_at,
-        CASE
-          WHEN t.location_updated_at > now() - interval '30 minutes' THEN 'online'
-          WHEN t.location_updated_at > now() - interval '2 hours' THEN 'recent'
-          ELSE 'offline'
-        END AS online_status,
-        u.full_name,
-        COALESCE(u.plan_type, 'free') AS plan_type,
-        (
-          40
-          + CASE WHEN COALESCE(t.available_tons, 0) >= COALESCE($1::numeric, 0) THEN 20 ELSE 0 END
-          + CASE WHEN COALESCE(t.available_volume_m3, 0) >= COALESCE($2::numeric, 0) THEN 20 ELSE 0 END
-          + CASE WHEN t.location_updated_at > now() - interval '2 hours' THEN 10 ELSE 0 END
-          + CASE WHEN COALESCE(u.plan_type, 'free') IN ('pro','company') THEN 10 ELSE 0 END
-        ) AS match_score
-      FROM trucks t
-      LEFT JOIN users u ON u.id = t.driver_id
-      ${where}
-      ORDER BY t.location_updated_at DESC NULLS LAST
-      LIMIT 200
-    `, params);
-
-    res.json({
-      success: true,
-      count: rows.rows.length,
-      filters: { tons, volume, from, to },
-      items: rows.rows
-    });
-  } catch (e) {
-    console.error(e);
-    res.status(500).json({ success: false, error: e.message });
-  }
-});
-
-
-app.get("/api/trucks/available", async (req, res) => {
-  try {
-    const tons = Number(req.query.tons || 0);
-    const volume = Number(req.query.volume || 0);
-    const from = (req.query.from || "").trim();
-    const to = (req.query.to || "").trim();
-
-    const params = [];
-    let where = `
-      WHERE t.status='active'
-        AND t.allow_partial_load = true
-        AND t.latitude IS NOT NULL
-        AND t.longitude IS NOT NULL
-        AND t.location_updated_at > now() - interval '24 hours'
-    `;
-
-    if (tons > 0) {
-      params.push(tons);
-      where += ` AND COALESCE(t.available_tons, 0) >= $${params.length}`;
-    }
-
-    if (volume > 0) {
-      params.push(volume);
-      where += ` AND COALESCE(t.available_volume_m3, 0) >= $${params.length}`;
+      where += ` AND COALESCE(t.available_volume_m3, 0) >= $2`;
     }
 
     if (from) {
@@ -2537,6 +2451,7 @@ app.get("/api/trucks/available", async (req, res) => {
 
 
 app.get("/api/cargo/:id/available-trucks", async (req, res) => {
+  if (!requireInternalApiSecret(req, res)) return;
   try {
     const cargoId = Number(req.params.id);
 
@@ -2673,6 +2588,7 @@ app.get("/api/cargo/:id/available-trucks", async (req, res) => {
 
 
 app.get("/api/matching/open-cargo", async (req, res) => {
+  if (!requireInternalApiSecret(req, res)) return;
   try {
     const rows = await pool.query(`
       SELECT
