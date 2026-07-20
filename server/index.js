@@ -161,10 +161,35 @@ const protectedMapApiPaths = new Set([
   "/api/cargo/create"
 ]);
 
+const dispatcherReadableMapPaths = new Set([
+  "/api/cargo/open",
+  "/api/trucks/active"
+]);
+
 app.use((req, res, next) => {
   if (req.method === "OPTIONS") return next();
-  const normalizedPath = (req.path.replace(/\/+$/, "") || "/").toLowerCase();
-  if (!protectedMapApiPaths.has(normalizedPath)) return next();
+
+  const normalizedPath =
+    (req.path.replace(/\/+$/, "") || "/").toLowerCase();
+
+  if (!protectedMapApiPaths.has(normalizedPath)) {
+    return next();
+  }
+
+  const dispatcherSecret = String(
+    req.headers["x-dispatcher-api-secret"] || ""
+  );
+
+  const dispatcherAllowed =
+    req.method === "GET" &&
+    dispatcherReadableMapPaths.has(normalizedPath) &&
+    DISPATCHER_API_SECRET &&
+    dispatcherSecret === DISPATCHER_API_SECRET;
+
+  if (dispatcherAllowed) {
+    return next();
+  }
+
   return requireTelegramWebApp(req, res, next);
 });
 // === END TELEGRAM_MAP_API_AUTH_V1 ===

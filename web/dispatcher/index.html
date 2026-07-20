@@ -309,8 +309,8 @@ function money(v) {
 
 async function load() {
   const [cargoRes, trucksRes, dealsRes, disputesRes, clientsRes] = await Promise.all([
-    fetch("/api/cargo/open"),
-    fetch("/api/trucks/active"),
+    dispatcherFetch("/api/cargo/open"),
+    dispatcherFetch("/api/trucks/active"),
     dispatcherFetch("/api/deals"),
     dispatcherFetch("/api/disputes"),
     dispatcherFetch("/api/dispatcher/clients")
