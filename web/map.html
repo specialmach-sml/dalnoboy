@@ -447,55 +447,83 @@ body.create-form-open #openCargoListBtn {
 /* === END UI CLEAN OPEN PANELS === */
 
 </style>
-<!-- DLN_MAP_TELEGRAM_ONLY_GUARD -->
+<!-- DLN_MAP_SESSION_OR_TELEGRAM_GUARD_V1 -->
 <style>
-#tgGuard{position:fixed;inset:0;z-index:999999;display:none;align-items:center;justify-content:center;padding:22px;background:#07111f;color:#fff;font-family:system-ui,-apple-system,"Segoe UI",sans-serif;text-align:center}
-#tgGuard .card{max-width:420px;border:1px solid #334155;border-radius:22px;background:#0f172a;padding:24px;box-shadow:0 20px 70px #0008}
-#tgGuard .ico{font-size:42px;margin-bottom:12px}
-#tgGuard h1{font-size:22px;margin:0 0 10px}
-#tgGuard p{font-size:15px;line-height:1.45;color:#cbd5e1;margin:0 0 18px}
-#tgGuard a{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 18px;border-radius:999px;background:#2aabee;color:#fff;font-weight:800;text-decoration:none}
+#tgGuard{position:fixed;inset:0;z-index:999999;display:none;align-items:center;justify-content:center;padding:22px;background:#07111f;color:white;text-align:center}
+#tgGuard .card{max-width:420px;background:#0f172a;border:1px solid #334155;border-radius:22px;padding:24px}
+#tgGuard a{display:block;margin-top:10px;padding:13px;border-radius:999px;background:#2aabee;color:white;font-weight:800;text-decoration:none}
+#tgGuard a.cabinet{background:#22c55e;color:#052e16}
 </style>
-<div id="tgGuard"><div class="card"><div class="ico">🗺️</div><h1>Карта доступна через Telegram-бота</h1><p>Откройте карту из меню Dalnoboy в Telegram. Прямая ссылка в браузере не показывает грузы и машины.</p><a href="https://t.me/dalnoboybros_bot">Открыть бота</a></div></div>
+
+<div id="tgGuard"><div class="card">
+<div style="font-size:42px">🗺️</div>
+<h2>Нужен вход в Dalnoboy</h2>
+<p>Войдите в кабинет или откройте карту из Telegram.</p>
+<a class="cabinet" href="/cabinet/">Войти в кабинет</a>
+<a href="https://t.me/dalnoboybros_bot">Открыть Telegram-бота</a>
+</div></div>
+
 <script>
 (function(){
-function ok(){try{var w=window.Telegram&&Telegram.WebApp;return !!(w&&(String(w.initData||"").length>10||(w.initDataUnsafe&&w.initDataUnsafe.user&&w.initDataUnsafe.user.id)));}catch(e){return false;}}
-if(ok()){window.DLN_MAP_TELEGRAM_ALLOWED=true;return;}
-window.DLN_MAP_TELEGRAM_ALLOWED=false;
-document.addEventListener("DOMContentLoaded",function(){document.body.style.overflow="hidden";var g=document.getElementById("tgGuard");if(g)g.style.display="flex";});
-var f=window.fetch?window.fetch.bind(window):null;
-window.fetch=function(url,opt){var u=String(url||"");if(u.indexOf("/api/")>=0)return Promise.reject(new Error("Telegram only"));return f?f(url,opt):Promise.reject(new Error("fetch unavailable"));};
-window.io=function(){return{on:function(){},emit:function(){},disconnect:function(){}}};
+  var initData="";
+  var token="";
+
+  try{
+    initData=window.Telegram&&Telegram.WebApp
+      ? Telegram.WebApp.initData||""
+      : "";
+    token=localStorage.getItem("dalnoboy_token")||"";
+  }catch(e){}
+
+  window.DLN_MAP_TELEGRAM_ALLOWED=!!initData;
+  window.DLN_MAP_APP_TOKEN=token;
+
+  window.DLN_SHOW_MAP_AUTH_GUARD=function(){
+    var g=document.getElementById("tgGuard");
+    if(g)g.style.display="flex";
+  };
+
+  if(!initData&&!token){
+    document.addEventListener(
+      "DOMContentLoaded",
+      window.DLN_SHOW_MAP_AUTH_GUARD
+    );
+  }
 })();
 </script>
 
-
-<!-- DLN_MAP_TELEGRAM_AUTH_HEADER_V1 -->
+<!-- DLN_MAP_AUTH_HEADER_V2 -->
 <script>
 (function(){
-  var oldFetch = window.fetch ? window.fetch.bind(window) : null;
-  if (!oldFetch) return;
+  var originalFetch=window.fetch.bind(window);
 
-  window.fetch = function(url, opt) {
-    opt = opt || {};
-    var u = String((url && url.url) || url || "");
+  window.fetch=async function(url,opt){
+    opt=opt||{};
+    var u=String((url&&url.url)||url||"");
 
-    if (u.indexOf("/api/") >= 0) {
-      var initData = "";
-      try {
-        initData = window.Telegram && Telegram.WebApp && Telegram.WebApp.initData
-          ? Telegram.WebApp.initData
+    if(u.indexOf("/api/")>=0){
+      var headers=new Headers(opt.headers||{});
+      var initData="";
+
+      try{
+        initData=window.Telegram&&Telegram.WebApp
+          ? Telegram.WebApp.initData||""
           : "";
-      } catch(e) {}
+      }catch(e){}
 
-      if (initData) {
-        var headers = new Headers(opt.headers || {});
-        headers.set("X-Telegram-Init-Data", initData);
-        opt.headers = headers;
+      if(initData){
+        headers.set("X-Telegram-Init-Data",initData);
+      }else if(window.DLN_MAP_APP_TOKEN){
+        headers.set(
+          "Authorization",
+          "Bearer "+window.DLN_MAP_APP_TOKEN
+        );
       }
+
+      opt.headers=headers;
     }
 
-    return oldFetch(url, opt);
+    return originalFetch(url,opt);
   };
 })();
 </script>
@@ -605,6 +633,22 @@ window.io=function(){return{on:function(){},emit:function(){},disconnect:functio
 const map = L.map('map', { zoomControl: true }).setView([55.7558, 37.6173], 6);
 
 let telegramUserId = null;
+
+async function initializeMapIdentity() {
+  if (telegramUserId || !window.DLN_MAP_APP_TOKEN) return;
+
+  try {
+    const res = await fetch("/api/app/me");
+    const data = await res.json();
+
+    if (res.ok && data.success && data.user?.telegram_id) {
+      telegramUserId = String(data.user.telegram_id);
+    }
+  } catch (e) {
+    console.log("map identity error", e.message);
+  }
+}
+
 let myMinRate = 0;
 let myLocationLat = null;
 let myLocationLon = null;
@@ -1504,15 +1548,21 @@ function setupSocket() {
   }
 }
 
-loadMyTruckInfo().then(() => {
-  if (getTelegramUserId()) {
-    loadPersonalNearby();
-  } else {
-    loadCargo('');
-  }
-  loadTrucks();
-  setupSocket();
-});
+initializeMapIdentity()
+  .then(() => loadMyTruckInfo())
+  .then(() => {
+    if (getTelegramUserId()) {
+      loadPersonalNearby();
+    } else {
+      loadCargo('');
+    }
+
+    loadTrucks();
+
+    if (window.DLN_MAP_TELEGRAM_ALLOWED) {
+      setupSocket();
+    }
+  });
 
 /* === UI CLEAN JS === */
 function setMapUiState(state) {

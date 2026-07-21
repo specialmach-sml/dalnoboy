@@ -148,8 +148,55 @@ function requireTelegramWebApp(req, res, next) {
   }
 
   req.telegramWebAppUser = verified.user || null;
+  req.mapAuthUser = {
+    source: "telegram",
+    telegram_id: signedId
+  };
   return next();
 }
+
+async function getAppSessionMapUser(req) {
+  const auth = String(req.headers.authorization || "");
+
+  if (!auth.startsWith("Bearer ")) {
+    return null;
+  }
+
+  const token = auth.slice(7).trim();
+  if (!token) return null;
+
+  const tokenHash = crypto
+    .createHash("sha256")
+    .update(token)
+    .digest("hex");
+
+  const result = await pool.query(
+    `
+    SELECT
+      s.user_id,
+      s.telegram_id,
+      u.full_name,
+      u.role,
+      u.plan_type,
+      u.verified,
+      u.banned
+    FROM app_sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.token_hash = $1
+      AND s.revoked_at IS NULL
+      AND s.expires_at > now()
+    LIMIT 1
+    `,
+    [tokenHash]
+  );
+
+  if (!result.rows.length || result.rows[0].banned) {
+    return null;
+  }
+
+  return result.rows[0];
+}
+
 
 const protectedMapApiPaths = new Set([
   "/api/cargo/open",
@@ -166,7 +213,7 @@ const dispatcherReadableMapPaths = new Set([
   "/api/trucks/active"
 ]);
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   if (req.method === "OPTIONS") return next();
 
   const normalizedPath =
@@ -190,7 +237,58 @@ app.use((req, res, next) => {
     return next();
   }
 
-  return requireTelegramWebApp(req, res, next);
+  const initData = req.get("x-telegram-init-data") || "";
+  const telegramAuth = verifyTelegramInitData(initData);
+
+  if (telegramAuth.ok) {
+    return requireTelegramWebApp(req, res, next);
+  }
+
+  try {
+    const appUser = await getAppSessionMapUser(req);
+
+    if (!appUser) {
+      return requireTelegramWebApp(req, res, next);
+    }
+
+    const signedId = String(appUser.telegram_id || "");
+
+    if (!signedId) {
+      return res.status(403).json({
+        success: false,
+        error: "telegram_not_linked"
+      });
+    }
+
+    const claimedId = String(
+      (req.query && req.query.telegram_id) ||
+      (req.body && req.body.telegram_id) ||
+      ""
+    );
+
+    if (claimedId && claimedId !== signedId) {
+      return res.status(403).json({
+        success: false,
+        error: "telegram_id_mismatch"
+      });
+    }
+
+    req.appSessionUser = appUser;
+    req.mapAuthUser = {
+      source: "app_session",
+      user_id: String(appUser.user_id),
+      telegram_id: signedId
+    };
+
+    return next();
+  } catch (e) {
+    console.error("map app session auth error", e);
+
+    return res.status(500).json({
+      success: false,
+      error: "map_auth_error"
+    });
+  }
 });
 // === END TELEGRAM_MAP_API_AUTH_V1 ===
 
